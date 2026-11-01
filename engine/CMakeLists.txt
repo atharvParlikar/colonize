@@ -6,6 +6,7 @@ add_library(engine STATIC
     src/input/actions.cpp
     src/math/attitude.cpp
     src/collision/capsule.cpp
+    src/collision/queries.cpp
     src/tuning/tuning.cpp
     src/tuning/panel.cpp
 )
@@ -15,3 +16,8 @@ target_include_directories(engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(engine PUBLIC cxx_std_23)
 target_link_libraries(engine PUBLIC ${RAYLIB_TARGET})
 fps_shooter_warnings(engine)
+
+# Headless engine checks: ./build/<preset>/engine/engine-tests
+add_executable(engine-tests tests/engine_tests.cpp)
+target_link_libraries(engine-tests PRIVATE engine)
+fps_shooter_warnings(engine-tests)

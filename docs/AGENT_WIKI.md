@@ -25,7 +25,8 @@ art, audio or model assets exist. Git repo; the current controller lives on the
 ```
 ./build.sh debug | release | run        # or: cmake --build --preset debug|release [--target flight-sim]
 ./build/release/fps-shooter
-./build/release/flight-sim              # headless physics checks, prints PASS/FAIL, "0 check(s) failed" when green
+./build/release/flight-sim              # headless physics + combat checks, prints PASS/FAIL, "0 check(s) failed" when green
+./build/release/engine/engine-tests     # headless engine checks (pool, sweep queries)
 ```
 
 - Targets: `fps-shooter` (game) and `flight-sim` (`tools/flight_sim.cpp` linked
@@ -58,6 +59,9 @@ GPU), `fps-shooter` (the game: rendering, audio, camera, input, `main`) and
 | Path | Role |
 |---|---|
 | `engine/include/engine/app.hpp`, `engine/src/app.cpp` | `engine::run(config, game)`: window, audio device, fixed-timestep loop with interpolation alpha. The game implements `engine::Game` (`init`, `input`, `fixedUpdate`, `update`, `render`, `shutdown`) |
+| `engine/.../entity/pool.hpp` | **Entities**: `Pool<T>` (plain structs in a flat array, free-list reuse) and `Handle<T>` (index + generation; `get()` is null once that entity is destroyed). Safe to destroy while iterating |
+| `engine/.../collision/queries.{hpp,cpp}` | Sweep tests for fast things: `segmentSphere`, `segmentAabb` |
+| `engine/tests/engine_tests.cpp` | `engine-tests` target |
 | `engine/.../input/actions.{hpp,cpp}` | `ActionMap<Action>`: named actions bound to keys / mouse buttons; `down` / `pressed` / `released`, `update()` once per frame |
 | `engine/.../math/attitude.{hpp,cpp}` | `Attitude` frame, bank / pitch / heading, `smoothstep`, `wrapAngle` |
 | `engine/.../math/noise.hpp` | `engine::noise`: hashes, gradient noise, fbm, erosion |
@@ -73,6 +77,8 @@ GPU), `fps-shooter` (the game: rendering, audio, camera, input, `main`) and
 | `game/player/jet.{hpp,cpp}` | Jet: kinematic, spring-loaded stick, auto-bank, energy |
 | `game/player/gload.{hpp,cpp}` | Felt g, the g dose, greyout / blackout / redout levels |
 | `game/player/input.{hpp,cpp}` | Copies flight actions into `PlayerInput` (the sim's input, which `flight-sim` scripts directly) |
+| `game/combat/combat.{hpp,cpp}` | **Combat**: `Combat` holds `Pool<Round>`, `Pool<Drone>`, `Pool<Spark>`; `stepCombat` fires, moves, resolves hits; `spawnDroneField` |
+| `game/render/combat.{hpp,cpp}` | Drones, tracers, sparks in the 3D scene |
 | `game/collision/` | Player capsule, player vs level boxes + terrain contact, `queryGround`, `snapToGround` |
 | `game/camera/camera.{hpp,cpp}` | `computeView` (hover look / jet cockpit blend, g shake, fov) |
 | `game/render/render.{hpp,cpp}` | `renderWorld` and the whole cockpit HUD |
@@ -177,6 +183,24 @@ copy the values from `tuning.txt` into the defaults in the list.
 Hand-tuning (all numbers are from the sim, not hand-play), a craft model, landing gear /
 proper collider, the conversion's own sound, breathing / g-strain audio, a proper
 desaturation post-pass (greyout is an overlay for now).
+
+## Combat (`game/combat/`)
+Left click (`Action::Fire`) fires a cannon at `kCannonRate`; rounds leave a muzzle under and
+right of the eye at `kMuzzleSpeed` plus the craft's velocity and cross the aim line at
+`kGunConvergence`. The aim is `aimDirection(player)`, the same blend of free look and nose
+the camera uses, so the crosshair at screen centre is where rounds go. Each step a round
+sweeps its segment against drones (`segmentSphere`), level boxes (`segmentAabb`) and the
+terrain height; a drone takes `kDroneHealth` hits, then breaks into sparks and respawns at its
+home after `kDroneRespawnTime`. `Combat::lastHit` is a `Handle<Drone>`: the HUD shows that
+drone's health and the row clears by itself when it breaks. Numbers: the Combat block of
+`game/core/constants.hpp`; checks: the Combat section of `flight-sim`.
+
+Entity pattern for new kinds of thing: a plain struct, a `Pool<T>` for it, handles for
+references between things, and a step function that owns the rules. No ECS.
+
+Not yet: weapon / hit / break sounds, drones that move or shoot back, the craft colliding
+with drones, tracers are hard to see head-on (`kTracerStart` / `kTracerLength` in
+`game/render/combat.cpp`).
 
 ## Collision (`engine/.../collision/` shapes, `game/collision/` player)
 Capsule vs level boxes (`world/level.cpp` platform and obstacles) and vs terrain via

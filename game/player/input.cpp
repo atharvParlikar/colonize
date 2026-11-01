@@ -7,6 +7,7 @@ void samplePlayerInput(const Controls &controls, PlayerInput &input) {
   input.right = controls.down(Action::Right);
   input.ascend = controls.down(Action::Ascend);
   input.descend = controls.down(Action::Descend);
+  input.fire = controls.down(Action::Fire);
   // Held until a physics step consumes it.
   input.convert = input.convert || controls.pressed(Action::Convert);
 }

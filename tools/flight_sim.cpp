@@ -3,6 +3,7 @@
 // The ranges encode the intended feel; when tuning changes, update them
 // deliberately, not to silence a failure.
 
+#include "combat/combat.hpp"
 #include "core/constants.hpp"
 #include "engine/math/attitude.hpp"
 #include "player/gload.hpp"
@@ -376,6 +377,84 @@ void testGLoad() {
 
 } // namespace
 
+// ---- Combat ----------------------------------------------------------------
+
+void runCombat(Combat &c, const Player &p, const PlayerInput &in, float seconds) {
+  for (float t = 0.0f; t < seconds; t += kPhysicsDt) stepCombat(c, p, in, kPhysicsDt);
+}
+
+void testCannon() {
+  std::printf("Combat: cannon rate and round lifetime\n");
+  const Player p = hovering();
+  Combat c;
+  PlayerInput fire;
+  fire.fire = true;
+  runCombat(c, p, fire, 1.0f);
+  // One on the press, then kCannonRate per second.
+  check("rounds in the air after 1 s of fire", static_cast<float>(c.rounds.size()), kCannonRate, kCannonRate + 1.0f,
+        "");
+  runCombat(c, p, {}, kRoundLifetime + 0.1f);
+  check("all rounds expire", static_cast<float>(c.rounds.size()), 0.0f, 0.0f, "");
+}
+
+void testDroneKill() {
+  std::printf("Combat: a drone at the convergence range breaks and comes back\n");
+  const Player p = hovering();
+  Combat c;
+  const auto target = c.drones.create(makeDrone(Vector3Add(p.position, Vector3Scale(aimDirection(p), kGunConvergence)), 0.0f));
+  PlayerInput fire;
+  fire.fire = true;
+  float hitAt = -1.0f, brokeAt = -1.0f;
+  for (float t = 0.0f; t < 3.0f && brokeAt < 0.0f; t += kPhysicsDt) {
+    stepCombat(c, p, fire, kPhysicsDt);
+    if (hitAt < 0.0f && c.lastHit) hitAt = t;
+    if (c.kills > 0) brokeAt = t;
+  }
+  // First round needs kGunConvergence / kMuzzleSpeed to arrive.
+  check("first hit after", hitAt, 0.5f, 0.75f, "s");
+  check("broken after", brokeAt, 0.5f, 1.0f, "s");
+  check("its handle is stale", c.drones.contains(target) ? 1.0f : 0.0f, 0.0f, 0.0f, "");
+  check("last-hit handle is stale", c.drones.get(c.lastHit) ? 1.0f : 0.0f, 0.0f, 0.0f, "");
+  check("sparks thrown", static_cast<float>(c.sparks.size()), 1.0f, 100.0f, "");
+  runCombat(c, p, {}, kSparkLifetime + 0.1f);
+  check("sparks gone", static_cast<float>(c.sparks.size()), 0.0f, 0.0f, "");
+  runCombat(c, p, {}, kDroneRespawnTime);
+  check("drone respawned", static_cast<float>(c.drones.size()), 1.0f, 1.0f, "");
+}
+
+void testRoundsStop() {
+  std::printf("Combat: rounds stop on the platform and on terrain\n");
+  PlayerInput fire;
+  fire.fire = true;
+
+  Player onPad; // landed on the platform at spawn
+  onPad.lookPitch = -0.6f;
+  Combat pad;
+  runCombat(pad, onPad, fire, 0.2f);
+  runCombat(pad, onPad, {}, 0.3f);
+  check("aimed at the platform: rounds left", static_cast<float>(pad.rounds.size()), 0.0f, 0.0f, "");
+
+  Player overHills = hovering();
+  overHills.position = {300.0f, terrainHeight(300.0f, 300.0f) + 20.0f, 300.0f};
+  overHills.lookPitch = -0.6f;
+  Combat hills;
+  runCombat(hills, overHills, fire, 0.2f);
+  runCombat(hills, overHills, {}, 0.3f);
+  check("aimed at terrain: rounds left", static_cast<float>(hills.rounds.size()), 0.0f, 0.0f, "");
+}
+
+void testDroneField() {
+  std::printf("Combat: drone field\n");
+  Combat c;
+  spawnDroneField(c);
+  check("drones spawned", static_cast<float>(c.drones.size()), kDroneCount, kDroneCount, "");
+  float lowest = 1e9f;
+  for (auto [handle, drone] : c.drones) {
+    lowest = std::min(lowest, drone.home.y - terrainHeight(drone.home.x, drone.home.z));
+  }
+  check("lowest drone above ground", lowest, 15.0f, 200.0f, "m");
+}
+
 int main() {
   testHoverMove();
   testHoverStrafeClimbLook();
@@ -388,6 +467,10 @@ int main() {
   testJetThrottle();
   testJetRoll();
   testGLoad();
+  testCannon();
+  testDroneKill();
+  testRoundsStop();
+  testDroneField();
   std::printf("\n%d check(s) failed\n", failures);
   return failures;
 }

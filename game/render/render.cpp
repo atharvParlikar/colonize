@@ -2,6 +2,7 @@
 
 #include "collision/capsule.hpp"
 #include "core/constants.hpp"
+#include "render/combat.hpp"
 #include "render/grass.hpp"
 #include "render/scenery.hpp"
 #include "engine/math/attitude.hpp"
@@ -29,7 +30,7 @@ void drawObstacles() {
 
 } // namespace
 
-void renderWorld(const Camera3D &camera, const Player &player) {
+void renderWorld(const Camera3D &camera, const Player &player, const Combat &combat, float alpha) {
   const float time = static_cast<float>(GetTime());
   updateGrassWind(camera, time);
   beginScene(camera);
@@ -38,6 +39,7 @@ void renderWorld(const Camera3D &camera, const Player &player) {
   drawLandscape();
   drawObstacles();
   EndShaderMode();
+  drawCombat(combat, camera, alpha);
   drawGrass(camera, player.position, player.velocity, time);
   // drawCollisionDebug(player);
 
@@ -383,6 +385,60 @@ void drawGMeter(const Player &player) {
   DrawRectangle(static_cast<int>(x), static_cast<int>(y + 26), static_cast<int>(70 * stress), 4, c);
 }
 
+// Crosshair at the aim point (the view looks where the gun aims), with hit
+// ticks after a hit.
+void drawCrosshair(const Combat &combat) {
+  constexpr Vector2 c{kScreenWidth * 0.5f, kScreenHeight * 0.5f};
+  DrawCircleLinesV(c, 9.0f, alpha(kCyan, 0.8f));
+  DrawCircleV(c, 1.5f, kCyan);
+  if (combat.hitMarker > 0.0f) {
+    for (int i = 0; i < 4; ++i) {
+      const float sx = (i & 1) ? 1.0f : -1.0f, sy = (i & 2) ? 1.0f : -1.0f;
+      DrawLineEx({c.x + sx * 13.0f, c.y + sy * 13.0f}, {c.x + sx * 21.0f, c.y + sy * 21.0f}, 2.5f, kWhite);
+    }
+  }
+}
+
+// A bracket on every drone in range and in front of the view: at a few hundred
+// metres a drone is only a few pixels.
+void drawDroneMarkers(const Combat &combat, const Camera3D &camera) {
+  constexpr float kMarkerRange = 900.0f; // m
+  const Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+  for (auto [handle, drone] : combat.drones) {
+    const Vector3 to = Vector3Subtract(drone.position, camera.position);
+    const float distance = Vector3Length(to);
+    if (distance > kMarkerRange || Vector3DotProduct(to, forward) <= 0.0f) continue;
+    const Vector2 s = GetWorldToScreenEx(drone.position, camera, kScreenWidth, kScreenHeight);
+    const bool hit = handle == combat.lastHit;
+    const Color c = alpha(hit ? kAmber : kRed, 0.85f);
+    const float k = 7.0f, r = 11.0f;
+    for (int i = 0; i < 4; ++i) {
+      const float sx = (i & 1) ? 1.0f : -1.0f, sy = (i & 2) ? 1.0f : -1.0f;
+      DrawLineEx({s.x + sx * r, s.y + sy * r}, {s.x + sx * (r - k), s.y + sy * r}, 2.0f, c);
+      DrawLineEx({s.x + sx * r, s.y + sy * r}, {s.x + sx * r, s.y + sy * (r - k)}, 2.0f, c);
+    }
+    text(TextFormat("%.0f", distance), s.x + r + 3, s.y + r - 4, 11, c, 1.0f);
+  }
+}
+
+// Under the flight-mode panel: drones left, kills, and the health of the
+// drone last hit. lastHit is a handle, so once that drone breaks get() is
+// null and the row clears by itself.
+void drawWeaponsPanel(const Combat &combat) {
+  constexpr float x = 36.0f, y = 584.0f, w = 210.0f, h = 100.0f;
+  panel(x, y, w, h);
+  text("CANNON", x + 14, y + 10, 13, kCyanDim);
+  text(TextFormat("TARGETS %2d/%d", static_cast<int>(combat.drones.size()), kDroneCount), x + 14, y + 30, 18, kCyan);
+  text(TextFormat("KILLS %d", combat.kills), x + 14, y + 54, 16, kWhite);
+  if (const Drone *drone = combat.drones.get(combat.lastHit)) {
+    text("LAST HIT", x + 110, y + 56, 12, kCyanDim);
+    for (int i = 0; i < kDroneHealth; ++i) {
+      const Rectangle pip{x + 110 + i * 22.0f, y + 74, 18, 8};
+      DrawRectangleRec(pip, i < drone->health ? kAmber : alpha(kCyanDim, 0.35f));
+    }
+  }
+}
+
 // Greyout, blackout tunnel and redout, drawn over everything (the HUD is in
 // the pilot's eyes too).
 void drawGEffects(const Player &player) {
@@ -434,7 +490,7 @@ void drawCrash(const Player &player) {
 
 } // namespace
 
-void drawHud(const Player &player, const Camera3D &camera) {
+void drawHud(const Player &player, const Combat &combat, const Camera3D &camera) {
   const float time = static_cast<float>(GetTime());
   const Attitude2D att = cameraAttitude(camera);
 
@@ -448,12 +504,16 @@ void drawHud(const Player &player, const Camera3D &camera) {
   drawShipDiagram(player, time);
   drawGMeter(player);
   drawCrash(player);
+  drawDroneMarkers(combat, camera);
+  drawCrosshair(combat);
+  drawWeaponsPanel(combat);
 
   constexpr const char *kHoverHints[][2] = {
       {"MOUSE", "look"},
       {"W A S D", "move (let go: stop)"},
       {"SPACE / SHIFT", "climb / descend"},
       {"F", "arm conversion to jet"},
+      {"LEFT CLICK", "fire"},
       {"", ""},
   };
   constexpr const char *kJetHints[][2] = {
@@ -462,12 +522,13 @@ void drawHud(const Player &player, const Camera3D &camera) {
       {"W / S", "throttle (S at idle: airbrake)"},
       {"A / D", "roll"},
       {"F", "arm conversion to hover"},
+      {"LEFT CLICK", "fire"},
   };
   const auto &hints = isJetMode(player.mode) ? kJetHints : kHoverHints;
   for (int pass = 0; pass < 2; ++pass) {
     const float o = pass == 0 ? 1.0f : 0.0f;
     const Color c = pass == 0 ? Color{0, 10, 16, 200} : alpha(kWhite, 0.75f);
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
       text(hints[i][0], 36 + o, 20 + 15 * i + o, 12, c, 1.0f);
       text(hints[i][1], 150 + o, 20 + 15 * i + o, 12, c, 1.0f);
     }

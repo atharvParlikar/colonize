@@ -12,6 +12,7 @@ enum class Action {
   Ascend,
   Descend,
   Convert,      // arm the hover <-> jet conversion
+  Fire,         // cannon
   TuningPanel,  // open / close the live tuning panel
   Count
 };

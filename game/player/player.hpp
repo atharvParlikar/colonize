@@ -58,9 +58,14 @@ struct PlayerInput {
   bool ascend = false;
   bool descend = false;
   bool convert = false; // F pressed since the last physics step
+  bool fire = false;    // cannon trigger held
   Vector2 mouseDelta{}; // accumulated since the last physics step
 };
 
 bool isJetMode(FlightMode mode);
+// Where the pilot is aiming, which is where the view looks: the free look
+// while hovering, the nose in the jet, blended through the conversion.
+Vector3 aimDirection(Vector3 look, Vector3 bodyForward, float convert);
+Vector3 aimDirection(const Player &player);
 void stepPlayer(Player &player, const PlayerInput &input, float dt);
 float playerAltitudeAboveGround(const Player &player);

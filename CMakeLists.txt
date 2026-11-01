@@ -49,7 +49,7 @@ endfunction()
 
 add_subdirectory(engine)
 
-# SKIFF's simulation: flight model, collision, the world's shape. No window or
+# SKIFF's simulation: flight model, combat, collision, the world's shape. No window or
 # GPU needed, so the game and the headless flight-sim both link it.
 add_library(skiff-sim STATIC
     game/core/tuning.cpp
@@ -61,6 +61,7 @@ add_library(skiff-sim STATIC
     game/collision/collision.cpp
     game/world/level.cpp
     game/world/terrain.cpp
+    game/combat/combat.cpp
 )
 target_include_directories(skiff-sim PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/game)
 target_link_libraries(skiff-sim PUBLIC engine::engine)
@@ -76,6 +77,7 @@ add_executable(fps-shooter
     game/render/render.cpp
     game/render/scenery.cpp
     game/render/grass.cpp
+    game/render/combat.cpp
 )
 find_package(Threads REQUIRED)
 target_link_libraries(fps-shooter PRIVATE skiff-sim Threads::Threads)

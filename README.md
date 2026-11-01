@@ -44,9 +44,14 @@ jet-borne to wing-borne as it speeds up (25 to 45 m/s).
 | let go of W / S | hold the current speed; below 125 km/h, come to a hover |
 | A / D | strafe when slow, roll when fast |
 | Space / Shift | climb / descend when slow |
+| Left click | fire the cannon |
+| Tab | live tuning panel |
 
 Parked on the ground with hands off, the engine throttles back and shuts off
 after 6 s. The craft is indestructible.
+
+24 target drones float around the spawn point (red brackets on the HUD). Three hits
+break one; it comes back after 8 s.
 
 ## How it flies
 

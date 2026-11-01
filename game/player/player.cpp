@@ -114,3 +114,11 @@ void stepPlayer(Player &player, const PlayerInput &input, float dt) {
 
   stepEngine(player, input, dt);
 }
+
+Vector3 aimDirection(Vector3 look, Vector3 bodyForward, float convert) {
+  return Vector3Normalize(Vector3Lerp(look, bodyForward, smoothstep(0.0f, 1.0f, convert)));
+}
+
+Vector3 aimDirection(const Player &player) {
+  return aimDirection(directionFrom(player.lookHeading, player.lookPitch), player.body.forward, player.convert);
+}

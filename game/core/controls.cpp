@@ -19,6 +19,7 @@ constexpr DefaultBinding kDefaults[] = {
     {Action::Ascend, InputBinding::key(KEY_SPACE)},
     {Action::Descend, InputBinding::key(KEY_LEFT_SHIFT)},
     {Action::Convert, InputBinding::key(KEY_F)},
+    {Action::Fire, InputBinding::mouse(MOUSE_BUTTON_LEFT)},
     {Action::TuningPanel, InputBinding::key(KEY_TAB)},
 };
 

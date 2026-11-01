@@ -1,4 +1,5 @@
 #include "audio/audio.hpp"
+#include "combat/combat.hpp"
 #include "camera/camera.hpp"
 #include "core/controls.hpp"
 #include "core/constants.hpp"
@@ -23,6 +24,7 @@ public:
     initScenery();
     initGrass();
     engine::loadTuning(kTuningFile, kFlightTuningParams); // the last saved tuning, if any
+    spawnDroneField(combat_);
 
     camera_ = makeCamera(computeView(previous_, player_, 1.0f));
     preloadScenery(camera_);
@@ -46,11 +48,13 @@ public:
       input_.mouseDelta = Vector2Add(input_.mouseDelta, mouseDelta);
     }
     samplePlayerInput(controls_, input_);
+    if (tuningPanel_.isOpen()) input_.fire = false; // clicks belong to the panel
   }
 
   void fixedUpdate(float dt) override {
     previous_ = player_;
     stepPlayer(player_, input_, dt);
+    stepCombat(combat_, player_, input_, dt);
     input_.mouseDelta = {};
     input_.convert = false;
   }
@@ -60,9 +64,9 @@ public:
     syncCamera(camera_, computeView(previous_, player_, alpha));
   }
 
-  void render(float /*alpha*/) override {
-    renderWorld(camera_, player_);
-    drawHud(player_, camera_);
+  void render(float alpha) override {
+    renderWorld(camera_, player_, combat_, alpha);
+    drawHud(player_, combat_, camera_);
 
     // Live readout in the tuning panel, to watch a change take effect.
     const GLoad &g = player_.load;
@@ -75,6 +79,7 @@ private:
   Player player_{};
   Player previous_ = player_;
   Controls controls_{};
+  Combat combat_{};
   PlayerInput input_{};
   Camera3D camera_{};
   engine::TuningPanel tuningPanel_{{

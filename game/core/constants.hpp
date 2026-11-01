@@ -51,6 +51,18 @@ constexpr float kTurboStartRpm = 6000.0f;     // gauge's hot zone
 constexpr float kRedlineRpm = 12000.0f;
 constexpr float kIdleTimeout = 6.0f;          // s
 
+// ---- Combat ----------------------------------------------------------------
+// A nose cannon and a field of target drones around spawn (combat/combat.cpp).
+constexpr float kCannonRate = 12.0f;          // rounds per second
+constexpr float kMuzzleSpeed = 700.0f;        // m/s, on top of the craft's velocity
+constexpr float kRoundLifetime = 2.5f;        // s
+constexpr float kGunConvergence = 400.0f;     // m: rounds cross the aim line here
+constexpr float kDroneRadius = 1.6f;          // m
+constexpr int kDroneCount = 24;
+constexpr int kDroneHealth = 3;               // rounds to break one
+constexpr float kDroneRespawnTime = 8.0f;     // s
+constexpr float kSparkLifetime = 1.2f;        // s
+
 // Landing
 constexpr float kCrashSpeed = 10.0f;          // m/s of velocity lost to impact
 constexpr float kCrashMessageTime = 3.0f;

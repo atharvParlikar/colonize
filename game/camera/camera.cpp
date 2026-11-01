@@ -27,9 +27,8 @@ View computeView(const Player &previous, const Player &current, float alpha) {
   const float pitch = previous.lookPitch + (current.lookPitch - previous.lookPitch) * alpha;
   const Vector3 look = directionFrom(heading, pitch);
   const Vector3 hoverUp = Vector3Normalize(Vector3Lerp(kWorldUp, bodyUp, kHoverViewTilt));
-  const float jet = smoothstep(0.0f, 1.0f, current.convert);
-  Vector3 forward = Vector3Normalize(Vector3Lerp(look, bodyForward, jet));
-  Vector3 up = Vector3Lerp(hoverUp, bodyUp, jet);
+  Vector3 forward = aimDirection(look, bodyForward, current.convert);
+  Vector3 up = Vector3Lerp(hoverUp, bodyUp, smoothstep(0.0f, 1.0f, current.convert));
   Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, up));
   up = Vector3CrossProduct(right, forward);
 
