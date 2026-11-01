@@ -7,6 +7,8 @@ struct AppConfig {
   int width = 1280;
   int height = 720;
   int targetFps = 60;
+  // Opens the audio device before init() and closes it after shutdown().
+  bool audio = true;
   // Simulation runs on a fixed step so physics behaves the same at any frame
   // rate; rendering interpolates between the last two steps.
   float fixedDt = 1.0f / 120.0f;
@@ -25,7 +27,7 @@ struct AppConfig {
 class Game {
 public:
   virtual ~Game() = default;
-  virtual void init() {} // the window exists
+  virtual void init() {} // the window (and audio device, if asked for) exist
   virtual void shutdown() {}
   virtual void input() {}
   virtual void fixedUpdate(float dt) = 0;

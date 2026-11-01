@@ -3,6 +3,7 @@
 # so a stray #include "player/player.hpp" fails to compile.
 add_library(engine STATIC
     src/app.cpp
+    src/input/actions.cpp
     src/math/attitude.cpp
     src/collision/capsule.cpp
     src/tuning/tuning.cpp

@@ -57,20 +57,22 @@ GPU), `fps-shooter` (the game: rendering, audio, camera, input, `main`) and
 
 | Path | Role |
 |---|---|
-| `engine/include/engine/app.hpp`, `engine/src/app.cpp` | `engine::run(config, game)`: window, fixed-timestep loop with interpolation alpha. The game implements `engine::Game` (`init`, `input`, `fixedUpdate`, `update`, `render`, `shutdown`) |
+| `engine/include/engine/app.hpp`, `engine/src/app.cpp` | `engine::run(config, game)`: window, audio device, fixed-timestep loop with interpolation alpha. The game implements `engine::Game` (`init`, `input`, `fixedUpdate`, `update`, `render`, `shutdown`) |
+| `engine/.../input/actions.{hpp,cpp}` | `ActionMap<Action>`: named actions bound to keys / mouse buttons; `down` / `pressed` / `released`, `update()` once per frame |
 | `engine/.../math/attitude.{hpp,cpp}` | `Attitude` frame, bank / pitch / heading, `smoothstep`, `wrapAngle` |
 | `engine/.../math/noise.hpp` | `engine::noise`: hashes, gradient noise, fbm, erosion |
 | `engine/.../collision/capsule.{hpp,cpp}` | `Capsule`, capsule vs AABB penetration / resolution / grounding |
 | `engine/.../tuning/tuning.{hpp,cpp}` | `TuningParam` table (pointers to the game's floats), save / load / reset |
 | `engine/.../tuning/panel.{hpp,cpp}` | `TuningPanel`: slider panel for any `TuningParam` table, one tab per group |
 | `game/main.cpp` | `Skiff : engine::Game`: glue between input, `stepPlayer`, camera, render, audio, panel |
+| `game/core/controls.{hpp,cpp}` | **Controls**: the `Action` enum and the default key table. Game code reads actions, never raw keys |
 | `game/core/constants.hpp` | Fixed constants (screen, ground, engine gauge, landing) |
 | `game/core/tuning.{hpp,cpp}` | **Live flight tuning** (hover, conversion, jet, g): `FLIGHT_TUNING` X-macro list, `tuning` global, `kFlightTuningParams` (the engine table), `jetDrag` |
 | `game/player/player.{hpp,cpp}` | `Player` state, `PlayerInput`, `stepPlayer` |
 | `game/player/hover.{hpp,cpp}` | Hover: kinematic game controller (free look, WASD velocity ramps) |
 | `game/player/jet.{hpp,cpp}` | Jet: kinematic, spring-loaded stick, auto-bank, energy |
 | `game/player/gload.{hpp,cpp}` | Felt g, the g dose, greyout / blackout / redout levels |
-| `game/player/input.{hpp,cpp}` | Keyboard sampling into `PlayerInput` |
+| `game/player/input.{hpp,cpp}` | Copies flight actions into `PlayerInput` (the sim's input, which `flight-sim` scripts directly) |
 | `game/collision/` | Player capsule, player vs level boxes + terrain contact, `queryGround`, `snapToGround` |
 | `game/camera/camera.{hpp,cpp}` | `computeView` (hover look / jet cockpit blend, g shake, fov) |
 | `game/render/render.{hpp,cpp}` | `renderWorld` and the whole cockpit HUD |
@@ -86,7 +88,7 @@ GPU), `fps-shooter` (the game: rendering, audio, camera, input, `main`) and
 The engine owns the loop; the steps below are which `Skiff` hook does each.
 
 1. `init`: `initAudio`, `initScenery`, create `Player`, `preloadScenery(camera)` ("Generating world...").
-2. `input` (per frame): mouse delta accumulated into `input.mouseDelta`, F presses latched into
+2. `input` (per frame): `controls.update()`; Tab (`Action::TuningPanel`) toggles the panel; mouse delta accumulated into `input.mouseDelta`, F presses latched into
    `input.convert`; both are consumed (cleared) by the next physics step. `samplePlayerInput`.
 3. `fixedUpdate`: the engine's fixed-timestep accumulator (`AppConfig::fixedDt`, set to
    `kPhysicsDt = 1/120`) calls it to run `stepPlayer`; frame

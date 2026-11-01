@@ -9,6 +9,7 @@ namespace engine {
 int run(const AppConfig &config, Game &game) {
   InitWindow(config.width, config.height, config.title);
   SetTargetFPS(config.targetFps);
+  if (config.audio) InitAudioDevice();
   game.init();
 
   float accumulator = 0.0f;
@@ -31,6 +32,7 @@ int run(const AppConfig &config, Game &game) {
   }
 
   game.shutdown();
+  if (config.audio && IsAudioDeviceReady()) CloseAudioDevice();
   CloseWindow();
   return 0;
 }

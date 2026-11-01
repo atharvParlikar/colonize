@@ -1,5 +1,6 @@
 #include "audio/audio.hpp"
 #include "camera/camera.hpp"
+#include "core/controls.hpp"
 #include "core/constants.hpp"
 #include "core/tuning.hpp"
 #include "engine/app.hpp"
@@ -17,6 +18,7 @@ class Skiff final : public engine::Game {
 public:
   void init() override {
     DisableCursor();
+    bindDefaultControls(controls_);
     initAudio();
     initScenery();
     initGrass();
@@ -35,14 +37,15 @@ public:
   void input() override {
     // Tab opens the tuning panel; while it is open the mouse is the panel's
     // (the frame it toggles, the cursor jump is thrown away).
+    controls_.update();
     const Vector2 mouseDelta = GetMouseDelta();
-    if (IsKeyPressed(KEY_TAB)) {
+    if (controls_.pressed(Action::TuningPanel)) {
       tuningPanel_.toggle();
     } else if (!tuningPanel_.isOpen()) {
       // Mouse movement and F presses are held until a physics step consumes them.
       input_.mouseDelta = Vector2Add(input_.mouseDelta, mouseDelta);
     }
-    samplePlayerInput(input_);
+    samplePlayerInput(controls_, input_);
   }
 
   void fixedUpdate(float dt) override {
@@ -71,6 +74,7 @@ public:
 private:
   Player player_{};
   Player previous_ = player_;
+  Controls controls_{};
   PlayerInput input_{};
   Camera3D camera_{};
   engine::TuningPanel tuningPanel_{{

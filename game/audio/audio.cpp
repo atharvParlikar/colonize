@@ -217,7 +217,6 @@ void synth(void *buffer, unsigned frames) {
 } // namespace
 
 void initAudio() {
-  InitAudioDevice();
   if (!IsAudioDeviceReady()) return;
   SetAudioStreamBufferSizeDefault(2048);
   gStream = LoadAudioStream(kSampleRate, 32, 1);
@@ -244,6 +243,5 @@ void shutdownAudio() {
   if (!gReady) return;
   StopAudioStream(gStream);
   UnloadAudioStream(gStream);
-  CloseAudioDevice();
   gReady = false;
 }

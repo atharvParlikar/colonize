@@ -69,6 +69,7 @@ fps_shooter_warnings(skiff-sim)
 # The game: rendering, audio, camera, input, and main.
 add_executable(fps-shooter
     game/main.cpp
+    game/core/controls.cpp
     game/audio/audio.cpp
     game/player/input.cpp
     game/camera/camera.cpp

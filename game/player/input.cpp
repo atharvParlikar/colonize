@@ -1,11 +1,12 @@
 #include "player/input.hpp"
 
-void samplePlayerInput(PlayerInput &input) {
-  input.forward = IsKeyDown(KEY_W);
-  input.back = IsKeyDown(KEY_S);
-  input.left = IsKeyDown(KEY_A);
-  input.right = IsKeyDown(KEY_D);
-  input.ascend = IsKeyDown(KEY_SPACE);
-  input.descend = IsKeyDown(KEY_LEFT_SHIFT);
-  input.convert = input.convert || IsKeyPressed(KEY_F); // held until a physics step consumes it
+void samplePlayerInput(const Controls &controls, PlayerInput &input) {
+  input.forward = controls.down(Action::Forward);
+  input.back = controls.down(Action::Back);
+  input.left = controls.down(Action::Left);
+  input.right = controls.down(Action::Right);
+  input.ascend = controls.down(Action::Ascend);
+  input.descend = controls.down(Action::Descend);
+  // Held until a physics step consumes it.
+  input.convert = input.convert || controls.pressed(Action::Convert);
 }

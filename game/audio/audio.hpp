@@ -3,7 +3,8 @@
 #include "player/player.hpp"
 
 // Fully synthesised audio (no sample files): jet engine and wind, generated
-// on the audio thread from a few parameters published once per frame.
+// on the audio thread from a few parameters published once per frame. The
+// engine owns the audio device; this owns the one stream it plays.
 void initAudio();
 void updateAudio(const Player &player);
 void shutdownAudio();
