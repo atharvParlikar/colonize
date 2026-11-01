@@ -27,6 +27,7 @@
   X("Conversion", convertTime, 1.5f, 0.2f, 5.0f, "Nozzle swing time", "s")                                  \
   X("Jet", stickSensitivity, 0.004f, 0.0005f, 0.02f, "Stick sensitivity", "/count")                         \
   X("Jet", stickReturnTau, 0.25f, 0.02f, 3.0f, "Stick spring-back time", "s")                               \
+  X("Jet", jetPitchWobble, 0.4f, 0.0f, 0.9f, "Pitch: ignore sideways below", "x pitch")                     \
   X("Jet", jetMaxRateDeg, 80.0f, 10.0f, 200.0f, "Max turn / pitch rate", "deg/s")                           \
   X("Jet", jetMaxG, 10.0f, 2.0f, 20.0f, "Max g (airframe)", "g")                                            \
   X("Jet", jetRollRate, 3.5f, 0.5f, 8.0f, "Hand roll rate (A/D)", "rad/s")                                  \

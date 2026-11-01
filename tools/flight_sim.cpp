@@ -275,6 +275,45 @@ void testJetPitch() {
   check("climb angle held", pathDeg(p), 8.0f, 45.0f, "deg");
 }
 
+void testJetPitchWobble() {
+  std::printf("Jet: pitch swipes at 165 m/s with sideways wobble keep the wings level\n");
+  for (float dir : {1.0f, -1.0f}) {
+    Player p = jetting(165.0f);
+    float worst = 0.0f;
+    for (float t = 0.0f; t < 1.5f; t += kPhysicsDt) {
+      PlayerInput in;
+      // Wobble up to 35% of the vertical, flipping side every 0.1 s.
+      const float side = std::fmod(t, 0.2f) < 0.1f ? 1.0f : -1.0f;
+      in.mouseDelta = swipe(side * 0.35f * 1500.0f, dir * 1500.0f);
+      stepPlayer(p, in, kPhysicsDt);
+      worst = std::max(worst, std::fabs(deg(bankOf(p.body))));
+    }
+    check(dir > 0 ? "nose down: worst bank" : "nose up: worst bank", worst, 0.0f, 3.0f, "deg");
+  }
+
+  std::printf("Jet: but a deliberate left still turns while pitching\n");
+  Player p = jetting(165.0f);
+  const float h0 = headingDeg(p.velocity);
+  float peakLeft = 0.0f;
+  for (float t = 0.0f; t < 1.0f; t += kPhysicsDt) {
+    PlayerInput in;
+    in.mouseDelta = swipe(-1500.0f, -1500.0f); // up and left, 45 degrees
+    stepPlayer(p, in, kPhysicsDt);
+    peakLeft = std::min(peakLeft, deg(bankOf(p.body)));
+  }
+  check("climbing left turn banks left", peakLeft, -90.0f, -30.0f, "deg");
+  check("and turns left", wrapDeg(headingDeg(p.velocity) - h0), -60.0f, -5.0f, "deg");
+
+  p = jetting(165.0f);
+  for (float t = 0.0f; t < 0.3f; t += kPhysicsDt) {
+    PlayerInput in;
+    in.mouseDelta = swipe(0.0f, 1500.0f);
+    in.left = true; // A while pushing the nose down
+    stepPlayer(p, in, kPhysicsDt);
+  }
+  check("A rolls left mid-pitch", deg(bankOf(p.body)), -75.0f, -45.0f, "deg");
+}
+
 void testJetThrottle() {
   std::printf("Jet: throttle, airbrake, stall\n");
   Player p = jetting(120.0f);
@@ -464,6 +503,7 @@ int main() {
   testJetFlick();
   testJetTurns();
   testJetPitch();
+  testJetPitchWobble();
   testJetThrottle();
   testJetRoll();
   testGLoad();

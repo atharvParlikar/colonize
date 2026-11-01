@@ -50,7 +50,15 @@ void stepJet(Player &player, const PlayerInput &input, float authority, float dt
   const float maxG = tuning.jetMaxG + (tuning.gLocMaxG - tuning.jetMaxG) * blackout;
   const float maxRate = std::min(tuning.jetMaxRateDeg * DEG2RAD, maxG * kGravity / speed) * lift;
   const float hand = authority * (1.0f - tuning.gLocStickLoss * blackout);
-  float turnRate = stick.x * maxRate * hand;  // heading, right positive
+  // A pitch swipe is never perfectly vertical. Sideways stick that is small
+  // next to the pitch is wobble, not a turn: at speed even a sliver of turn
+  // asks for a steep auto-bank, and the wings rock. It counts as nothing up to
+  // jetPitchWobble x the pitch, then fades in, whole once it matches the pitch.
+  // A / D and a real sideways swipe are untouched.
+  const float wobble = tuning.jetPitchWobble * std::fabs(stick.y);
+  const float lateral = std::clamp((std::fabs(stick.x) - wobble) / (1.0f - tuning.jetPitchWobble), 0.0f,
+                                   std::fabs(stick.x));
+  float turnRate = std::copysign(lateral, stick.x) * maxRate * hand; // heading, right positive
   float pitchRate = stick.y * maxRate * hand; // about the wing, nose up positive
   const float cosPitch = std::cos(pitchOf(body));
   const float combined = std::hypot(turnRate * cosPitch, pitchRate);

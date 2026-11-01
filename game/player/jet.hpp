@@ -5,7 +5,9 @@
 // The jet is kinematic but has momentum:
 //   - the mouse deflects a spring-loaded stick (tuning.stickReturnTau): X turns the
 //     heading and the jet banks into the turn on its own, Y pitches about the
-//     wing; A / D roll by hand (the bank holds, then eases back);
+//     wing; A / D roll by hand (the bank holds, then eases back); sideways
+//     wobble on a pitch swipe is ignored (tuning.jetPitchWobble) so the wings
+//     stay level;
 //   - the turn rate is capped by tuning.jetMaxRateDeg and by the g the airframe
 //     allows at this speed, which a blacked-out pilot cannot reach (soft loss
 //     of control);
