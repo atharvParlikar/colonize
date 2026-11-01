@@ -41,53 +41,48 @@ if(NOT RAYLIB_TARGET)
     set(RAYLIB_TARGET raylib)
 endif()
 
-add_executable(fps-shooter
-    src/main.cpp
-    src/core/tuning.cpp
-    src/render/tuning_ui.cpp
-    src/audio/audio.cpp
-    src/player/player.cpp
-    src/player/attitude.cpp
-    src/player/gload.cpp
-    src/player/hover.cpp
-    src/player/jet.cpp
-    src/player/input.cpp
-    src/camera/camera.cpp
-    src/render/render.cpp
-    src/render/scenery.cpp
-    src/render/grass.cpp
-    src/collision/capsule.cpp
-    src/collision/collision.cpp
-    src/world/level.cpp
-    src/world/terrain.cpp
+function(fps_shooter_warnings target)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
+add_subdirectory(engine)
+
+# SKIFF's simulation: flight model, collision, the world's shape. No window or
+# GPU needed, so the game and the headless flight-sim both link it.
+add_library(skiff-sim STATIC
+    game/core/tuning.cpp
+    game/player/player.cpp
+    game/player/gload.cpp
+    game/player/hover.cpp
+    game/player/jet.cpp
+    game/collision/capsule.cpp
+    game/collision/collision.cpp
+    game/world/level.cpp
+    game/world/terrain.cpp
 )
+target_include_directories(skiff-sim PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/game)
+target_link_libraries(skiff-sim PUBLIC engine::engine)
+fps_shooter_warnings(skiff-sim)
 
-target_include_directories(fps-shooter PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-
-target_compile_features(fps-shooter PRIVATE cxx_std_23)
+# The game: rendering, audio, camera, input, and main.
+add_executable(fps-shooter
+    game/main.cpp
+    game/audio/audio.cpp
+    game/player/input.cpp
+    game/camera/camera.cpp
+    game/render/render.cpp
+    game/render/scenery.cpp
+    game/render/grass.cpp
+)
 find_package(Threads REQUIRED)
-target_link_libraries(fps-shooter PRIVATE ${RAYLIB_TARGET} Threads::Threads)
+target_link_libraries(fps-shooter PRIVATE skiff-sim Threads::Threads)
 if(APPLE)
-  target_link_libraries(fps-shooter PRIVATE "-framework OpenGL")
+    target_link_libraries(fps-shooter PRIVATE "-framework OpenGL")
 endif()
-
-if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
-    target_compile_options(fps-shooter PRIVATE -Wall -Wextra -Wpedantic)
-endif()
+fps_shooter_warnings(fps-shooter)
 
 # Headless flight-model checks: no window, just the physics.
-add_executable(flight-sim
-    tools/flight_sim.cpp
-    src/core/tuning.cpp
-    src/player/player.cpp
-    src/player/attitude.cpp
-    src/player/gload.cpp
-    src/player/hover.cpp
-    src/player/jet.cpp
-    src/collision/capsule.cpp
-    src/collision/collision.cpp
-    src/world/level.cpp
-    src/world/terrain.cpp
-)
-target_include_directories(flight-sim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(flight-sim PRIVATE ${RAYLIB_TARGET})
+add_executable(flight-sim tools/flight_sim.cpp)
+target_link_libraries(flight-sim PRIVATE skiff-sim)

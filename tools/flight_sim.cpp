@@ -4,7 +4,7 @@
 // deliberately, not to silence a failure.
 
 #include "core/constants.hpp"
-#include "player/attitude.hpp"
+#include "engine/math/attitude.hpp"
 #include "player/gload.hpp"
 #include "player/player.hpp"
 #include "world/terrain.hpp"
@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+
+using namespace engine;
 
 namespace {
 

@@ -2,7 +2,7 @@
 
 Orientation for an agent (or human) picking up this repo. Written from the working
 session that built it; verify against the code before trusting a detail, the
-constants especially (`src/core/constants.hpp` is the source of truth).
+constants especially (`game/core/constants.hpp` is the source of truth).
 
 ## What it is
 
@@ -28,55 +28,73 @@ art, audio or model assets exist. Git repo; the current controller lives on the
 ./build/release/flight-sim              # headless physics checks, prints PASS/FAIL, "0 check(s) failed" when green
 ```
 
-- Targets: `fps-shooter` (game) and `flight-sim` (`tools/flight_sim.cpp` + player,
-  collision and world sources; no rendering).
+- Targets: `fps-shooter` (game) and `flight-sim` (`tools/flight_sim.cpp` linked
+  against `skiff-sim`; no rendering). See the source map for `engine` / `skiff-sim`.
 - raylib comes from Homebrew (`/opt/homebrew`), found via `find_package`, with a
   FetchContent fallback. Threads are linked (terrain workers).
 - Release build has one known, harmless warning: unused parameter in
   `drawCollisionDebug`.
-- Run `flight-sim` after any change to `src/player/*`, `collision/*`, `world/terrain.*`
+- Run `flight-sim` after any change to `game/player/*`, `collision/*`, `world/terrain.*`
   or physics constants. It is the regression suite; extend it when adding mechanics.
 - Visual checks: temporarily hack a screenshot into `main.cpp` (raylib's
   `TakeScreenshot("x.png")` saves into the **cwd by basename**), run from the
   scratchpad dir, read the PNG, then **remove the hook** and verify with
-  `grep -c getenv src/main.cpp`.
+  `grep -c getenv game/main.cpp`.
 - Shell is zsh with fish login. zsh does not word-split `$var`; macOS `sed -i ''`
   is fiddly; prefer Python for multi-line edits.
 
 ## Source map
 
+The code is split into an **engine** (`engine/`, a static library, namespace
+`engine`) and the **game** (`game/`). Hard rule: nothing in `engine/` includes a
+game header; the `engine` target only has `engine/include` on its include path, so
+the compiler enforces it. Move code into the engine once it is clearly not about
+SKIFF, or a second user needs it.
+
+CMake targets: `engine` (generic), `skiff-sim` (SKIFF's simulation: no window or
+GPU), `fps-shooter` (the game: rendering, audio, camera, input, `main`) and
+`flight-sim` (headless checks). Both executables link `skiff-sim`.
+
 | Path | Role |
 |---|---|
-| `src/main.cpp` | Window, fixed-timestep loop, glue |
-| `src/core/constants.hpp` | Fixed constants (screen, ground, engine gauge, landing) |
-| `src/core/tuning.{hpp,cpp}` | **Live flight tuning** (hover, conversion, jet, g): `FLIGHT_TUNING` X-macro list, `tuning` global, save/load |
-| `src/render/tuning_ui.{hpp,cpp}` | In-game tuning panel (Tab) |
-| `src/player/player.{hpp,cpp}` | `Player` state, `PlayerInput`, `stepPlayer` |
-| `src/player/hover.{hpp,cpp}` | Hover: kinematic game controller (free look, WASD velocity ramps) |
-| `src/player/jet.{hpp,cpp}` | Jet: kinematic, spring-loaded stick, auto-bank, energy |
-| `src/player/gload.{hpp,cpp}` | Felt g, the g dose, greyout / blackout / redout levels |
-| `src/player/attitude.{hpp,cpp}` | `Attitude` frame, bank / pitch / heading, small maths helpers |
-| `src/player/input.{hpp,cpp}` | Keyboard sampling into `PlayerInput` |
-| `src/collision/` | Capsule vs level boxes + terrain contact, `queryGround`, `snapToGround` |
-| `src/camera/camera.{hpp,cpp}` | `computeView` (hover look / jet cockpit blend, g shake, fov) |
-| `src/render/render.{hpp,cpp}` | `renderWorld` and the whole cockpit HUD |
-| `src/render/scenery.{hpp,cpp}` | Streaming terrain/tree LOD system, post-processing |
-| `src/render/shaders.hpp` | Embedded GLSL: world, sky, Kuwahara post |
-| `src/world/noise.hpp`, `terrain.{hpp,cpp}` | Noise, `terrainHeight`, `terrainNormal`, `surfaceFriction` |
-| `src/world/level.cpp`, `colliders.hpp` | Spawn platform and box obstacles |
-| `src/audio/audio.{hpp,cpp}` | Fully synthesised audio |
+| `engine/include/engine/app.hpp`, `engine/src/app.cpp` | `engine::run(config, game)`: window, fixed-timestep loop with interpolation alpha. The game implements `engine::Game` (`init`, `input`, `fixedUpdate`, `update`, `render`, `shutdown`) |
+| `engine/.../math/attitude.{hpp,cpp}` | `Attitude` frame, bank / pitch / heading, `smoothstep`, `wrapAngle` |
+| `engine/.../math/noise.hpp` | `engine::noise`: hashes, gradient noise, fbm, erosion |
+| `engine/.../collision/capsule.{hpp,cpp}` | `Capsule`, capsule vs AABB penetration / resolution / grounding |
+| `engine/.../tuning/tuning.{hpp,cpp}` | `TuningParam` table (pointers to the game's floats), save / load / reset |
+| `engine/.../tuning/panel.{hpp,cpp}` | `TuningPanel`: slider panel for any `TuningParam` table, one tab per group |
+| `game/main.cpp` | `Skiff : engine::Game`: glue between input, `stepPlayer`, camera, render, audio, panel |
+| `game/core/constants.hpp` | Fixed constants (screen, ground, engine gauge, landing) |
+| `game/core/tuning.{hpp,cpp}` | **Live flight tuning** (hover, conversion, jet, g): `FLIGHT_TUNING` X-macro list, `tuning` global, `kFlightTuningParams` (the engine table), `jetDrag` |
+| `game/player/player.{hpp,cpp}` | `Player` state, `PlayerInput`, `stepPlayer` |
+| `game/player/hover.{hpp,cpp}` | Hover: kinematic game controller (free look, WASD velocity ramps) |
+| `game/player/jet.{hpp,cpp}` | Jet: kinematic, spring-loaded stick, auto-bank, energy |
+| `game/player/gload.{hpp,cpp}` | Felt g, the g dose, greyout / blackout / redout levels |
+| `game/player/input.{hpp,cpp}` | Keyboard sampling into `PlayerInput` |
+| `game/collision/` | Player capsule, player vs level boxes + terrain contact, `queryGround`, `snapToGround` |
+| `game/camera/camera.{hpp,cpp}` | `computeView` (hover look / jet cockpit blend, g shake, fov) |
+| `game/render/render.{hpp,cpp}` | `renderWorld` and the whole cockpit HUD |
+| `game/render/scenery.{hpp,cpp}` | Streaming terrain/tree LOD system, post-processing |
+| `game/render/shaders.hpp` | Embedded GLSL: world, sky, Kuwahara post |
+| `game/world/terrain.{hpp,cpp}` | `terrainHeight`, `terrainNormal`, `surfaceFriction`, trees |
+| `game/world/level.cpp`, `colliders.hpp` | Spawn platform and box obstacles |
+| `game/audio/audio.{hpp,cpp}` | Fully synthesised audio |
 | `tools/flight_sim.cpp` | Headless checks |
 
-## Main loop (`main.cpp`)
+## Main loop (`engine::run` in `engine/src/app.cpp`, driving `Skiff` in `game/main.cpp`)
 
-1. `initAudio`, `initScenery`, create `Player`, `preloadScenery(camera)` ("Generating world...").
-2. Per frame: mouse delta accumulated into `input.mouseDelta`, F presses latched into
+The engine owns the loop; the steps below are which `Skiff` hook does each.
+
+1. `init`: `initAudio`, `initScenery`, create `Player`, `preloadScenery(camera)` ("Generating world...").
+2. `input` (per frame): mouse delta accumulated into `input.mouseDelta`, F presses latched into
    `input.convert`; both are consumed (cleared) by the next physics step. `samplePlayerInput`.
-3. Fixed-timestep accumulator at `kPhysicsDt = 1/120` calling `stepPlayer`; frame
+3. `fixedUpdate`: the engine's fixed-timestep accumulator (`AppConfig::fixedDt`, set to
+   `kPhysicsDt = 1/120`) calls it to run `stepPlayer`; frame
    time clamped to 0.1 s. `previous`/`current` states are blended for rendering
-   (`computeView(prev, cur, accumulator/dt)`).
-4. `updateAudio(player)`, `syncCamera`, then `renderWorld` + `drawHud(player, camera)`.
-5. `SetTargetFPS(60)`. This was lowered from 144 to cut heat (the GPU was saturated).
+   (`computeView(prev, cur, alpha)`).
+4. `update`: `updateAudio(player)`, `syncCamera`. `render`: `renderWorld` + `drawHud(player, camera)`
+   + the tuning panel.
+5. `AppConfig::targetFps = 60`. This was lowered from 144 to cut heat (the GPU was saturated).
 
 ## Player physics (`stepPlayer`)
 
@@ -142,9 +160,10 @@ out and starts the tunnel (5.4 s); near corner speed (290 km/h) it is 2.7 s.
 Test footing: `flight-sim` air tests run at 1500 m.
 
 ### Live tuning (Tab)
-Every hover / conversion / jet / g number is a runtime field of `tuning` (`core/tuning.hpp`),
+Every hover / conversion / jet / g number is a runtime field of `tuning` (`game/core/tuning.hpp`),
 declared once in the `FLIGHT_TUNING(X)` list as (group, name, default, min, max, label,
-unit); the struct, the panel rows and `tuning.txt` all come from that list, so **add a
+unit); the struct, the engine table (`kFlightTuningParams`), and so the panel rows and
+`tuning.txt`, all come from that list, so **add a
 tunable by adding one line there**. The jet drag is derived (`jetDrag()` from thrust and
 top speed). Tab opens the panel (cursor freed, mouse stops flying, sim keeps running):
 drag / click = set, Shift = fine, wheel = nudge, right click = default, changed values
@@ -157,7 +176,7 @@ Hand-tuning (all numbers are from the sim, not hand-play), a craft model, landin
 proper collider, the conversion's own sound, breathing / g-strain audio, a proper
 desaturation post-pass (greyout is an overlay for now).
 
-## Collision (`src/collision/`)
+## Collision (`engine/.../collision/` shapes, `game/collision/` player)
 Capsule vs level boxes (`world/level.cpp` platform and obstacles) and vs terrain via
 the analytic `terrainHeight`/`terrainNormal`. `queryGround(player, tolerance)` returns
 a `GroundContact` (grounded, normal, friction); `snapToGround` keeps the car on the

@@ -50,7 +50,7 @@ after 6 s. The craft is indestructible.
 
 ## How it flies
 
-The pilot law (`src/player/pilot.cpp`) turns the inputs into a wanted
+The pilot law (`game/player/pilot.cpp`) turns the inputs into a wanted
 acceleration, then into the force the airframe must make (gravity included):
 
 - **Hover:** a velocity along the aim (plus strafe and climb). The body tilts so
@@ -70,13 +70,13 @@ acceleration, then into the force the airframe must make (gravity included):
   wing-borne an airbrake opens instead.
 
 Tuning: the "Airframe", "Attitude loop", "Speed", "Hover" and "Flight" blocks of
-`src/core/constants.hpp`. Physics checks: `./build/release/flight-sim`.
+`game/core/constants.hpp`. Physics checks: `./build/release/flight-sim`.
 
 Above 250 km/h the grass only draws near the craft (fully at 400 km/h; see
-`src/render/grass.cpp`). The HUD shows a compass tape,
+`game/render/grass.cpp`). The HUD shows a compass tape,
 artificial horizon with a flight-path marker, speed and altitude panels, the
 speed set point, an RPM gauge and a top-down schematic with the nozzle angle.
 
 ## Audio
 
-All sound is synthesised at runtime (`src/audio/audio.cpp`): a resonant saw-stack drive hum, rising whine, ignition thump and speed-dependent wind. No sample files.
+All sound is synthesised at runtime (`game/audio/audio.cpp`): a resonant saw-stack drive hum, rising whine, ignition thump and speed-dependent wind. No sample files.
