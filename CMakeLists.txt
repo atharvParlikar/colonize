@@ -43,11 +43,14 @@ endif()
 
 add_executable(fps-shooter
     src/main.cpp
+    src/core/tuning.cpp
+    src/render/tuning_ui.cpp
     src/audio/audio.cpp
     src/player/player.cpp
-    src/player/aero.cpp
-    src/player/airframe.cpp
-    src/player/pilot.cpp
+    src/player/attitude.cpp
+    src/player/gload.cpp
+    src/player/hover.cpp
+    src/player/jet.cpp
     src/player/input.cpp
     src/camera/camera.cpp
     src/render/render.cpp
@@ -75,10 +78,12 @@ endif()
 # Headless flight-model checks: no window, just the physics.
 add_executable(flight-sim
     tools/flight_sim.cpp
+    src/core/tuning.cpp
     src/player/player.cpp
-    src/player/aero.cpp
-    src/player/airframe.cpp
-    src/player/pilot.cpp
+    src/player/attitude.cpp
+    src/player/gload.cpp
+    src/player/hover.cpp
+    src/player/jet.cpp
     src/collision/capsule.cpp
     src/collision/collision.cpp
     src/world/level.cpp

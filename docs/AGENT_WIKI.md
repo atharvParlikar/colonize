@@ -8,10 +8,10 @@ constants especially (`src/core/constants.hpp` is the source of truth).
 
 A C++23 / raylib 5.5 game, originally an FPS prototype (dir `fps-shooter`, target
 `fps-shooter`, window title "SKIFF"). The player is now a **hover skiff**:
-it is a single-engine tilt-jet (one vectoring nozzle, a fixed wing) that hovers and
-flies on one control law. The world is a
-huge procedural, painterly terrain. Everything is procedural: no art, audio or
-model assets exist. Not a git repo.
+it hovers like a game character and, after an explicit conversion (F), flies like a
+jet. The world is a huge procedural, painterly terrain. Everything is procedural: no
+art, audio or model assets exist. Git repo; the current controller lives on the
+`new-flight-controller` branch (2026-10-31).
 
 - Platform: macOS (Apple M2, AppleClang), OpenGL 4.1 via raylib, GLSL `#version 330`.
 - Units: **1 unit = 1 m**, SI throughout. Gravity 9.81. Mass 80 kg.
@@ -48,14 +48,17 @@ model assets exist. Not a git repo.
 | Path | Role |
 |---|---|
 | `src/main.cpp` | Window, fixed-timestep loop, glue |
-| `src/core/constants.hpp` | **All tuning constants** (ground, wing, engine, controls, landing) |
+| `src/core/constants.hpp` | Fixed constants (screen, ground, engine gauge, landing) |
+| `src/core/tuning.{hpp,cpp}` | **Live flight tuning** (hover, conversion, jet, g): `FLIGHT_TUNING` X-macro list, `tuning` global, save/load |
+| `src/render/tuning_ui.{hpp,cpp}` | In-game tuning panel (Tab) |
 | `src/player/player.{hpp,cpp}` | `Player` state, `PlayerInput`, `stepPlayer` |
-| `src/player/airframe.{hpp,cpp}` | Rigid body: one vectoring engine, wing, drag, fly-by-wire rate loop |
-| `src/player/pilot.{hpp,cpp}` | The one control law (aim, speed command, attitude, nozzle), `shapedRate` |
-| `src/player/aero.{hpp,cpp}` | Atmosphere, `Attitude`, wing model (unused until wings return) |
+| `src/player/hover.{hpp,cpp}` | Hover: kinematic game controller (free look, WASD velocity ramps) |
+| `src/player/jet.{hpp,cpp}` | Jet: kinematic, spring-loaded stick, auto-bank, energy |
+| `src/player/gload.{hpp,cpp}` | Felt g, the g dose, greyout / blackout / redout levels |
+| `src/player/attitude.{hpp,cpp}` | `Attitude` frame, bank / pitch / heading, small maths helpers |
 | `src/player/input.{hpp,cpp}` | Keyboard sampling into `PlayerInput` |
 | `src/collision/` | Capsule vs level boxes + terrain contact, `queryGround`, `snapToGround` |
-| `src/camera/camera.{hpp,cpp}` | `computeView` (interpolated view, bob, lean, wing attitude) |
+| `src/camera/camera.{hpp,cpp}` | `computeView` (hover look / jet cockpit blend, g shake, fov) |
 | `src/render/render.{hpp,cpp}` | `renderWorld` and the whole cockpit HUD |
 | `src/render/scenery.{hpp,cpp}` | Streaming terrain/tree LOD system, post-processing |
 | `src/render/shaders.hpp` | Embedded GLSL: world, sky, Kuwahara post |
@@ -67,8 +70,8 @@ model assets exist. Not a git repo.
 ## Main loop (`main.cpp`)
 
 1. `initAudio`, `initScenery`, create `Player`, `preloadScenery(camera)` ("Generating world...").
-2. Per frame: mouse delta accumulated into `input.mouseDelta` (consumed by the next
-   physics step, moves the aim point). `samplePlayerInput`.
+2. Per frame: mouse delta accumulated into `input.mouseDelta`, F presses latched into
+   `input.convert`; both are consumed (cleared) by the next physics step. `samplePlayerInput`.
 3. Fixed-timestep accumulator at `kPhysicsDt = 1/120` calling `stepPlayer`; frame
    time clamped to 0.1 s. `previous`/`current` states are blended for rendering
    (`computeView(prev, cur, accumulator/dt)`).
@@ -77,89 +80,82 @@ model assets exist. Not a git repo.
 
 ## Player physics (`stepPlayer`)
 
-**Rewritten (2026-10-29) as one engine and one control law.** The previous build
-(six jets, quad mixer, control surfaces, aero moments, separate hover and flight laws
-on an F toggle, trim/sag patches) is kept in `backup/flight-before-rework/`.
-`stepPlayer` is pure (no raylib IO) so the sim can script it. `Player.position` is the
-**eye** position (`kEyeHeight` above the capsule base; the capsule is still the
-collision shape). `FlightMode` (Landed / Hover / Flight) is only a label: `Player.flight`
-(0..1, airspeed 25 to 45 m/s) blends the law. The craft is **indestructible**.
+**Rebuilt from scratch (2026-10-31, branch `new-flight-controller`).** User brief:
+"on hover mode it should feel like a game and on flight mode it should feel like a
+jet". The previous force-based single blended law (vectoring engine, wing, FBW
+attitude loop, mouse-aim point) is gone (git history on `main`). Two kinematic
+controllers and an explicit conversion instead; no aero simulation. `stepPlayer` is
+pure (no raylib IO) so the sim can script it. `Player.position` is the **eye**
+position; the craft is indestructible.
 
-Per step: `pilotControl` (law) -> `stepAirframe` (physics) -> integrate position ->
-`resolvePlayerCollisions` -> skid friction (scaled by the weight the engine is not
-carrying) -> mode label.
+Per step: `stepConversion` (mode machine) -> `stepJet` or `stepHover` (with a hand-over
+authority from `convert`) -> integrate position -> `resolvePlayerCollisions` (impact >
+`kCrashSpeed` shows HULL BREACH) -> touching the ground in jet mode drops straight back
+to hover -> Landed/Hover label -> felt g into `stepGLoad` -> engine rpm.
 
-### Airframe (`airframe.{hpp,cpp}`)
-- Body frame: x right, y up, z forward (right = forward x up, so the basis is
-  left-handed; `attitudeQuat` in pilot.cpp uses -forward as its z column).
-- Mass 600 kg. One engine, `kEngineMaxThrust` 14 kN (hover at 42%), spool tau 0.15 s.
-  The nozzle angle is in the body up/forward plane: 0 = thrust along body up, 90 deg =
-  along forward, negative = tipped forward (braking). It cannot push sideways.
-- Wing (`computeWingsuitAero`, 10 m^2, stall 20 deg), anisotropic hull drag (0.4 fwd,
-  2 side, 3 belly m^2; the belly acts as lift at angle of attack), airbrake (20 m^2, arcade-big).
-- **Fly-by-wire attitude:** no torques or inertia. `AirframeCommand.rate` is a world
-  angular velocity; the body rate follows it with `kAttitudeTau` 0.08 s.
+### Modes and conversion (`player.cpp`)
+`FlightMode`: Landed, Hover, ToJet, Jet, ToHover. **F arms** the next conversion (press
+again to disarm); the **speed gate** starts it: hover -> jet once forward speed >=
+`kConvertSpeed` 30 m/s (hover top speed is 40, so arm and hold W), jet -> hover once
+speed <= `kConvertBackSpeed` 70 m/s (S to idle opens the airbrake). `convert` ramps
+0 <-> 1 over `kConvertTime` 1.5 s (nozzle swing: HUD, camera blend, audio), and the new
+controller's authority ramps with it. `enterJet` points the nose along the look and sets
+the throttle that holds the speed; `enterHover` points the look along the nose.
 
-### Pilot law (`pilot.{hpp,cpp}`)
-1. `steerAim`: mouse X turns `aimDir` about world up, mouse Y about its level right axis
-   (flying: aligned with the wing near the vertical so loops are continuous). Hovering
-   it is clamped to +-85 deg elevation. **Flying, the aim is a spring-loaded stick**
-   (user, 2026-10-31: the sticky War Thunder-style point was too sensitive, "goes anywhere
-   and very far"; turning at speed should take constant movement): it leads the path by at
-   most `kAimMaxAngleDeg` 60 (30 felt "a little too restrictive") and eases back toward it with `kAimReturnTau` 0.3 s, so a
-   flick turns ~12 deg and stops, and a 180 needs a sustained swipe (~150 deg/s of aim,
-   3 s at 125 m/s). The easing is done per axis against the horizon (great circle only
-   near the vertical) and stops short of the path: `kAimHoldDeg` 1 sideways,
-   `kAimHoldElevationDeg` 3 vertically. **Both matter:** easing along the great circle
-   lifts a point leading a level turn (the arc bulges up) and spirals the turn into a
-   climb; easing all the way onto the path soaks the path's own lag/wander into the point,
-   so released cruise drifts and turns climb away ~18 m.
-2. `stepSpeedCommand`: W ramps `speedCommand` (10 m/s^2 hover, 25 flying), at most
-   `kSpeedLead` 25 m/s above the real speed. **S is a hard brake:** it drops the command at
-   `kBrakeRate` 250 m/s^2 to `kBrakeLead` 60 below the speed, so the law asks for the full
-   `kFlightMaxBrake` 40 m/s^2 (hover: `kHoverMaxBrake` 20); 100 -> 20 m/s takes ~2.7 s. On release it latches the current speed, or 0
-   below `kCruiseLatch` 35 m/s. Speed is along the aim when hovering, airspeed when flying.
-3. Wanted acceleration: hover = P on velocity error (aim * speed + strafe + climb);
-   flight = `turnDirection` (heading/elevation error against the horizon, great circle when
-   the arc goes near the vertical) * shaped turn rate + P on speed. **Arcade turning:** no
-   g limit; the rate cap is what the wing pulls at `kTurnAlphaDeg` 12 (less the weight),
-   up to `kMaxTurnRateDeg` 100 deg/s, so a 180 at 125 m/s takes ~2.9 s (~13 g). Blended by
-   `flight`. Force = m (a + g up).
-4. Attitude target: hover tilts body up along `need` = force - aero (with the fore/aft
-   part removed as forward speed builds, since the nozzle does that), faces the aim's
-   heading. Flight splits the force's part across the path into sideways and vertical
-   (horizon frame; canopy frame near the vertical) and picks one of three ways to fly it:
-   **turn** = bank into the turn and pull, tan(bank) = sideways / vertical with the vertical
-   floored (1 W when it is small or points down, 0.5 W when it clearly points up);
-   **push** = a mostly-down demand, wings level, negative lift (capped at 2 g), sideways by
-   skid; **invert** = pull past knife edge (loop top) only when the wing is already
-   `kPushPreferDeg` 45 nearer that. Pull/push memory = current alpha sign (hysteresis).
-   **Don'ts, both learned 2026-10-31:** don't bank along the force's direction (on a
-   pushover the vertical is ~0 and any sideways crumb sent the wing to knife edge: "pitch
-   at speed snaps fully left/right"); don't meet a sideways demand by banking away and
-   pushing (turns the right way, rolls the wrong way: "point down, then left, it turns
-   right"). Sideways aim error below `kFlatTurnDeg` 15 is flown wings level: the bank
-   *angle* fades in over it (MouseFlight-style wings-level vs. aggressive-roll blend) and
-   the skid (nose yawed up to `kMaxSkidDeg` 6) makes up whatever sideways push the wing is
-   not making yet. Lift = weighted least squares (vertical 2x) for a bank halfway between
-   the current and target one, so the pull comes as the bank arrives (roll, then pull):
-   turns stay within ~4-6 m of altitude, at ~0.15 s on the arcade 180.
-   alpha = lift / (q (S CLa + belly CdA)), clamped to -8..15 deg. Blended by `flight`.
-5. Rates: quaternion attitude error -> `shapedRate` per body axis + **feed-forward of the
-   path's rotation** (v x a / v^2 of the planned lift). Without the feed-forward a steady
-   turn runs 7 deg short on alpha and the engine ends up doing the wing's job.
-   A/D override the roll rate at speed.
-6. Engine: airbrake opens when the engine would need to push backwards (at any speed).
-   Nozzle = direction of `need` in the body plane, clamped to +-12 deg hovering, opening
-   to 90 deg aft with forward speed; forward braking travel only while jet-borne (a tipped
-   nozzle also lifts, which made braking from cruise balloon). Thrust = need . nozzle.
-   Parked + no keys = thrust 0. `engineRpm` = idle + throttle^1.5 scale; off after 6 s at rest.
+### Hover (`hover.cpp`): a game
+Mouse = free look (`lookHeading`, `lookPitch`, +-85 deg). W/S/A/D ask for a velocity
+relative to the look heading (40 fwd, 12 back, 18 strafe m/s), Space/Shift climb 12 /
+descend 10. The velocity ramps to it at `kHoverAccel` 22 up, `kHoverBrake` 32 down (letting
+go stops in ~1.2 s), vertical 18 m/s^2. No gravity, no forces: the engine just holds you.
+The body faces the look heading and leans into the acceleration (cosmetic, max 18 deg).
 
-Test footing: `flight-sim` flight tests run at 1500 m.
+### Jet (`jet.cpp`): kinematic with momentum (direction "C")
+- **Stick:** the mouse deflects a spring-loaded stick (`kStickSensitivity` 0.004/count,
+  springs back with `kStickReturnTau` 0.25 s, |stick| <= 1). Turning takes continuous
+  movement; a flick turns ~15 deg and stops (user liked this spring feel on the old
+  build).
+- **Rates:** stick X = heading rate (about world up), stick Y = pitch about the wing.
+  Full stick = `kJetMaxRateDeg` 80 deg/s, capped by the g allowed at this speed
+  (`kJetMaxG` 10 -> at 125 m/s ~45 deg/s; corner speed ~70 m/s), softened below the stall.
+- **Auto-bank:** rolls to the coordinated bank of the heading turn (atan(v w / g), max
+  85 deg); fades near the vertical. **A/D roll by hand** (3.5 rad/s); letting go holds
+  that bank, which then eases back over `kRollTrimReturnTau` 2 s.
+- **Flight path** follows the nose (`kJetAlign` 6/s): a little lag / drift.
+- **Speed** is one number: `kJetThrustAccel` 18 m/s^2 x throttle (W/S, 0.7/s; it holds when
+  let go) minus drag (top level speed 170 m/s), minus g sin(climb), minus turn bleed
+  `kJetTurnBleed` x g^2 (10 g costs 14 m/s^2). S at idle = airbrake (3x drag).
+- **Stall:** below `kJetStallSpeed` 45 m/s the wing carries (v/vs)^2 of the weight; the path
+  and the nose sag with the rest.
+- **Soft loss of control (blackout):** max g eases from 10 to `kGLocMaxG` 6 and stick
+  authority drops 40% as `blackout` goes 0 -> 1. Held full pull settles ~5-6 g, blind.
+
+### g (`gload.cpp`)
+Felt g = (acceleration + 1 g up) . body up / g, smoothed 0.08 s (collision jolts are
+skipped). **Dose model** (user: "exceeds 10g or sustains 6g+ for 2-3 s" -> start
+blacking out): above `kGOnset` 5 g the dose grows at (g - 5)^1.2 per s; below 4 g it
+drains 3/s. greyout = smoothstep(2, 5, dose), blackout (tunnel then black) =
+smoothstep(5, 12, dose). So 6 g greys at ~2.4 s, tunnels at ~5 s, black at ~12 s; 10 g
+greys at ~0.4 s, black at ~1.8 s; black to clear ~4 s. Negative g below -2 builds a
+redout dose (faster). `shake` = smoothstep(4, 11, g). A full-stick 180 at 450 km/h greys
+out and starts the tunnel (5.4 s); near corner speed (290 km/h) it is 2.7 s.
+
+Test footing: `flight-sim` air tests run at 1500 m.
+
+### Live tuning (Tab)
+Every hover / conversion / jet / g number is a runtime field of `tuning` (`core/tuning.hpp`),
+declared once in the `FLIGHT_TUNING(X)` list as (group, name, default, min, max, label,
+unit); the struct, the panel rows and `tuning.txt` all come from that list, so **add a
+tunable by adding one line there**. The jet drag is derived (`jetDrag()` from thrust and
+top speed). Tab opens the panel (cursor freed, mouse stops flying, sim keeps running):
+drag / click = set, Shift = fine, wheel = nudge, right click = default, changed values
+are amber with a white default tick. Save writes `tuning.txt` in the working directory
+and `main` loads it at startup; the sim always uses the defaults. To ship a tuned feel,
+copy the values from `tuning.txt` into the defaults in the list.
 
 ### Not yet done
-A craft model, per-engine audio, landing gear / proper collider, terrain-aware
-autopilot, hand-tuned feel (all tuning so far is from the sim, not from hand-play).
+Hand-tuning (all numbers are from the sim, not hand-play), a craft model, landing gear /
+proper collider, the conversion's own sound, breathing / g-strain audio, a proper
+desaturation post-pass (greyout is an overlay for now).
 
 ## Collision (`src/collision/`)
 Capsule vs level boxes (`world/level.cpp` platform and obstacles) and vs terrain via
@@ -208,9 +204,10 @@ Further options if heat remains: render the world at 75% scale, simpler tree sha
 a quality toggle.
 
 ## Camera (`camera.cpp`)
-`computeView` returns position/forward/up/fov. Blended by `Player.flight`: hovering it
-looks along `aimDir` (free look) with 35% of the body's tilt; flying it is bolted to the
-body frame. FOV widens with speed.
+`computeView` returns position/forward/up/fov. Hovering it looks along the look angles
+with 35% of the body's lean; in the jet it is bolted to the body; `convert` blends the
+two. g effects: shake (incommensurate sines, ~0.9 deg and 4 cm at full `load.shake`)
+and a 6 deg FOV squeeze from 3 to 9 g. FOV widens with speed.
 
 ## HUD (`render.cpp`, bottom half of the file)
 All 2D, drawn with raylib primitives and the default font. Pieces: compass tape
@@ -218,16 +215,20 @@ All 2D, drawn with raylib primitives and the default font. Pieces: compass tape
 (`roll = atan2(-right.y, up.y)`, drawn rotated by -roll), boresight reticle,
 flight-path marker (`GetWorldToScreen` of the velocity direction), speed panel
 (km/h, m/s, "Mach" = v/340), altitude panel (AGL, ASL, V/S, L/D capped at 99.9),
-mode/engine panel, RPM arc gauge with the turbo zone, fuel bar, top-down ship
-schematic (wings stow/deploy, hover pads, exhaust flame by RPM, blue in turbo), STALL
-and LOW FUEL flashes, HULL BREACH overlay, control hints top-left. Palette:
+mode panel (mode, F-armed gate, throttle / airbrake, nozzle-swing bar), RPM arc gauge,
+ship schematic (nozzle angle = convert x 90 deg), g readout + dose bar left of the
+reticle, HULL BREACH overlay, per-mode control hints top-left. **g effects are drawn
+last, over the HUD** (`drawGEffects`): grey wash, then a radial-gradient vignette
+texture that closes in (tunnel), then black; redout is a red wash + red tunnel. Palette:
 cyan/amber/red on translucent dark panels with corner brackets.
 
 ## Audio (`audio.cpp`)
 No samples. One mono 32-bit float `AudioStream` (44.1 kHz, buffer 2048) filled by a
 callback on the audio thread (`synth`). The game thread publishes atomics once a
 frame in `updateAudio`: `gThrottle` (0 off, 1 wing jet, 2 heavy), `gRpm`, `gTurbo`,
-`gHover`, `gWind` (airspeed), `gMuffle` (grounded).
+`gHover`, `gWind` (airspeed), `gMuffle` (grounded), `gDim` (g effects: the whole mix goes
+through a two-pole low-pass closing 12 kHz -> 300 Hz and ducks 65%), `gHeart` (a lub-dub
+heartbeat at 52 Hz, 1.1 -> 2.3 beats/s, from the g dose).
 Layers: drive hum (detuned saws + sub through a resonant state-variable filter, with
 a slow throb), rising sine whine, soft air hiss, ignition thump, and turbo layers
 (octave-up saw growl, sweeping siren, rushing air, a wastegate "pssh" + kick when the
@@ -238,18 +239,18 @@ sci-fi", explicitly not a fan/roar; keep levels low. To sanity-check without ear
 peak/RMS and NaNs.
 
 ## Headless sim (`tools/flight_sim.cpp`)
-Sections: idle hover, cold start, W and release, strafe, reverse, climb/descent, look-down
-descent, turning to the aim, disturbance recovery, landing / parking / lift-off, flying into
-terrain; hover-to-flight on W, top speed, level cruise, flick-and-release, swiped 90 deg turns, held-mouse level circle,
-loop, Immelmann (stop at the top), inverted recovery, hand roll, push-over (negative-g
-limit), pitch with sideways drift (no snap roll), dive then aim sideways (banks toward the aim), pitch swipe then release, S from cruise to a hover, takeoff from the platform. Ranges encode the intended feel; when you
-change tuning, update the expectations deliberately, not to silence a failure.
+Sections: hover W / let go, strafe / climb / look, landing and idle-down; conversion
+(armed at rest stays hover, gate, 1.5 s swing) and back (only below the gate, ends
+stopped); jet hands-off cruise, flick and release, swiped 90s, full-stick 180 at 450 and
+at 290 km/h, pitch swipe and release, climb bleed, throttle / idle / airbrake, stall sag,
+hand roll; g dose timings (6 g, 10 g, 4.5 g, -4 g, recovery), soft loss under a held pull,
+hover never builds a dose. Ranges encode the intended feel; when you change tuning,
+update the expectations deliberately, not to silence a failure.
 
 ## Controls (current)
-One scheme at every speed, no mode switch: mouse = aim point (go where you look;
-flying, a spring-loaded stick that recentres on release),
-W/S = faster/slower (let go: hold speed, or stop below 125 km/h), A/D = strafe when
-slow / roll when fast, Space/Shift = climb/descend when slow.
+Hover: mouse = look, WASD = move (let go: stop), Space/Shift = climb/descend.
+Jet: mouse = spring-loaded stick (X turns with auto-bank, Y pitches), W/S = throttle
+(S at idle: airbrake), A/D = roll. F = arm the conversion either way (speed-gated).
 
 ## History and design decisions (why things are the way they are)
 1. Painterly procedural world (no assets). 2. Streaming huge terrain. 3. Fixed the
@@ -265,6 +266,11 @@ slow / roll when fast, Space/Shift = climb/descend when slow.
 12. (2026-10-29) All of 10-11 replaced: one vectoring engine, fly-by-wire attitude, one
    blended control law, no mode switch (user: the controls had become "an accumulation of
    a bunch of jets from previous builds").
+13. (2026-10-31) Mouse-aim fixes on 12 (no snap roll on pitch, no wrong-way bank after a
+   dive, spring-back aim point), then the user asked to rethink from the ground up:
+   hover as a game, jet as a jet. Chosen: kinematic jet ("C") + g dose / blackout,
+   mouse turns with auto-bank, F + speed gate, soft loss of control. Built on branch
+   `new-flight-controller`.
 The user's preferences seen so far: wants "feel" and character (sound, turbo),
 physical plausibility with SI units, quiet/industrial sci-fi tone, low laptop heat.
 
@@ -273,6 +279,5 @@ physical plausibility with SI units, quiet/industrial sci-fi tone, low laptop he
 - LOD pop; float precision far from origin; no tree collision.
 - Turbo top speed (~470 km/h) outruns terrain streaming.
 - The craft has no external model; the capsule collider is person-sized, not craft-sized.
-- Hover and flight feel, HUD and audio are unverified by hand; fuel and turbo are gone.
-- Not yet hand-played end to end: controls feel and audio mix are unverified by ear.
+- The new hover / jet / g feel, HUD effects and audio are unverified by hand.
 - Release-build unused-parameter warning in `drawCollisionDebug`.

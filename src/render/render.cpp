@@ -4,6 +4,7 @@
 #include "core/constants.hpp"
 #include "render/grass.hpp"
 #include "render/scenery.hpp"
+#include "player/attitude.hpp"
 #include "world/colliders.hpp"
 #include "world/level.hpp"
 #include "raylib.h"
@@ -202,33 +203,6 @@ void drawFlightPathMarker(const Player &player, const Camera3D &camera) {
   DrawLineEx({p.x, p.y - 9}, {p.x, p.y - 20}, 2.0f, kAmber);
 }
 
-// The mouse-aim circle: where the craft is being flown to. Off screen it sticks
-// to the edge, pointing the way.
-void drawAimCircle(const Player &player, const Camera3D &camera) {
-  const Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
-  const Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, camera.up));
-  const Vector3 up = Vector3CrossProduct(right, forward);
-  const Vector3 aim = player.aimDir;
-  const Vector2 centre{kScreenWidth * 0.5f, kScreenHeight * 0.5f};
-  const Color colour = kCyan;
-
-  Vector2 p = GetWorldToScreen(Vector3Add(camera.position, Vector3Scale(aim, 500.0f)), camera);
-  constexpr float margin = 36.0f;
-  const bool onScreen = Vector3DotProduct(aim, forward) > 0.1f && p.x > margin &&
-                        p.x < kScreenWidth - margin && p.y > margin && p.y < kScreenHeight - margin;
-  if (!onScreen) {
-    Vector2 d{Vector3DotProduct(aim, right), -Vector3DotProduct(aim, up)};
-    const float len = std::hypot(d.x, d.y);
-    d = len > 1e-4f ? Vector2{d.x / len, d.y / len} : Vector2{0.0f, -1.0f};
-    const float reach = std::min((kScreenWidth * 0.5f - margin) / std::max(std::fabs(d.x), 1e-3f),
-                                 (kScreenHeight * 0.5f - margin) / std::max(std::fabs(d.y), 1e-3f));
-    p = {centre.x + d.x * reach, centre.y + d.y * reach};
-    DrawLineEx(p, {p.x + d.x * 14.0f, p.y + d.y * 14.0f}, 3.0f, alpha(colour, 0.8f));
-  }
-  DrawRing(p, 11.0f, 13.5f, 0.0f, 360.0f, 40, alpha(colour, onScreen ? 0.95f : 0.6f));
-  DrawCircleV(p, 2.5f, alpha(colour, 0.95f));
-}
-
 void drawSpeedPanel(const Player &player) {
   constexpr float x = 36.0f, y = 250.0f, w = 210.0f, h = 190.0f;
   const float speed = Vector3Length(player.velocity);
@@ -264,7 +238,8 @@ void drawAltitudePanel(const Player &player) {
   const float vs = player.velocity.y;
   const Color vsColor = vs < -9.0f ? kRed : (vs < -4.0f ? kAmber : kCyan);
   text(TextFormat("V/S %+6.1f m/s", vs), x + 14, y + 124, 18, vsColor);
-  text(player.mode == FlightMode::Landed ? "LANDED" : "STATION KEEPING", x + 14, y + 152, 14, kCyanDim);
+  text(player.mode == FlightMode::Landed ? "LANDED" : (isJetMode(player.mode) ? "WING-BORNE" : "JET-BORNE"), x + 14,
+       y + 152, 14, kCyanDim);
   // Tiny vertical-speed bar: up above the centre line, down below.
   const float mid = y + 176.0f;
   const float len = std::clamp(vs / 20.0f, -1.0f, 1.0f) * 60.0f;
@@ -332,7 +307,8 @@ void drawShipDiagram(const Player &player, float time) {
   }
   DrawCircleV(P(0, 2.2f), 5.0f, alpha(kAmber, 0.8f)); // cockpit
 
-  const float level = std::clamp(player.throttle, 0.0f, 1.0f);
+  const float level = std::clamp(player.engineRpm / kRedlineRpm, 0.0f, 1.0f);
+  const float nozzle = player.convert * 90.0f * DEG2RAD; // straight down hovering, aft in the jet
   const Vector2 engine = P(0, -1.0f);
   DrawCircleLinesV(engine, 12.0f, kCyan);
   DrawCircleV(engine, 11.0f * level, alpha(level > 0.7f ? kAmber : kCyan, 0.75f));
@@ -341,12 +317,12 @@ void drawShipDiagram(const Player &player, float time) {
   // Side view, nose to the right: the plume leaves opposite to the thrust.
   const Vector2 pivot{px + 34.0f, py + 70.0f};
   DrawLineEx({pivot.x - 16, pivot.y}, {pivot.x + 16, pivot.y}, 3.0f, kCyan);
-  const Vector2 plume{-std::sin(player.nozzle), std::cos(player.nozzle)};
+  const Vector2 plume{-std::sin(nozzle), std::cos(nozzle)};
   const float flicker = 1.0f + 0.08f * std::sin(time * 40.0f);
   const float length = 8.0f + 34.0f * level * (player.engineRpm > 1.0f ? flicker : 0.0f);
   DrawLineEx(pivot, {pivot.x + plume.x * length, pivot.y + plume.y * length}, 5.0f,
              alpha(level > 0.7f ? kAmber : kCyan, 0.8f));
-  textCentered(TextFormat("%+.0f", player.nozzle * RAD2DEG), pivot.x, pivot.y + 50, 12, kWhite);
+  textCentered(TextFormat("%+.0f", nozzle * RAD2DEG), pivot.x, pivot.y + 50, 12, kWhite);
   textCentered("NOZZLE", pivot.x, pivot.y + 64, 11, kCyanDim);
 
   const float roll = std::atan2(-player.body.right.y, player.body.up.y) * RAD2DEG;
@@ -359,33 +335,91 @@ const char *modeName(FlightMode mode) {
   switch (mode) {
   case FlightMode::Landed: return "LANDED";
   case FlightMode::Hover: return "HOVER";
-  case FlightMode::Flight: return "FLIGHT";
+  case FlightMode::ToJet: return "CONVERT";
+  case FlightMode::Jet: return "JET";
+  case FlightMode::ToHover: return "CONVERT";
   }
   return "";
 }
 
 void drawStatus(const Player &player, float time) {
-  (void)time;
   constexpr float x = 36.0f, y = 462.0f, w = 210.0f, h = 100.0f;
   panel(x, y, w, h);
   text("FLIGHT MODE", x + 14, y + 10, 13, kCyanDim);
   text(modeName(player.mode), x + 14, y + 26, 34, kWhite, 2.0f);
-  // The speed the craft holds: below cruise it stops when W is let go.
-  const float set = player.speedCommand * 3.6f;
+  const bool blink = std::fmod(time, 0.8f) < 0.5f;
   const float speed = Vector3Length(player.velocity);
   if (player.engineRpm <= 1.0f) {
     text("ENGINE  COLD", x + 14, y + 68, 16, kCyanDim);
-  } else if (player.speedKeyHeld) {
-    text(player.speedCommand > speed ? "ACCELERATING" : "SLOWING", x + 14, y + 68, 16, kCyan);
-  } else if (player.speedCommand >= kCruiseLatch) {
-    text(TextFormat("CRUISE  %3.0f km/h", set), x + 14, y + 68, 16, kAmber);
+  } else if (player.convertArmed && !isJetMode(player.mode)) {
+    if (blink) text(TextFormat("F ARMED  >%3.0f km/h", tuning.convertSpeed * 3.6f), x + 14, y + 68, 16, kAmber);
+  } else if (player.convertArmed) {
+    if (blink) text(TextFormat("F ARMED  <%3.0f km/h", tuning.convertBackSpeed * 3.6f), x + 14, y + 68, 16, kAmber);
+  } else if (player.mode == FlightMode::ToJet || player.mode == FlightMode::ToHover) {
+    text("NOZZLES SWINGING", x + 14, y + 68, 16, kAmber);
+  } else if (player.mode == FlightMode::Jet) {
+    text(player.airbrake ? "AIRBRAKE" : TextFormat("THROTTLE  %3.0f%%", player.throttle * 100.0f), x + 14, y + 68,
+         16, player.airbrake ? kAmber : kCyan);
   } else {
-    text(TextFormat("SET  %+4.0f km/h", set), x + 14, y + 68, 16, kCyan);
+    text(speed >= tuning.convertSpeed ? "F: CONVERT TO JET" : "F: ARM CONVERSION", x + 14, y + 68, 16, kCyanDim);
   }
   DrawRectangle(static_cast<int>(x + 14), static_cast<int>(y + 88), static_cast<int>(w - 28), 5,
                 alpha(kCyanDim, 0.35f));
   DrawRectangle(static_cast<int>(x + 14), static_cast<int>(y + 88),
-                static_cast<int>((w - 28) * std::clamp(player.flight, 0.0f, 1.0f)), 5, kAmber); // wing-borne share
+                static_cast<int>((w - 28) * std::clamp(player.convert, 0.0f, 1.0f)), 5, kAmber); // nozzle swing
+}
+
+// Felt load beside the reticle: amber as the dose builds, red once the
+// greyout starts.
+void drawGMeter(const Player &player) {
+  const GLoad &g = player.load;
+  const Color c = g.greyout > 0.0f || g.redout > 0.0f ? kRed : (g.dose > 0.0f || g.g > tuning.gOnset ? kAmber : kCyan);
+  constexpr float x = kScreenWidth * 0.5f - 190.0f, y = kScreenHeight * 0.5f + 34.0f;
+  textRight(TextFormat("%+.1f G", g.g), x + 70.0f, y, 22, c);
+  const float stress = std::clamp(std::max(g.dose / tuning.blackoutDose, g.negDose / tuning.redoutDose), 0.0f, 1.0f);
+  DrawRectangle(static_cast<int>(x), static_cast<int>(y + 26), 70, 4, alpha(kCyanDim, 0.35f));
+  DrawRectangle(static_cast<int>(x), static_cast<int>(y + 26), static_cast<int>(70 * stress), 4, c);
+}
+
+// Greyout, blackout tunnel and redout, drawn over everything (the HUD is in
+// the pilot's eyes too).
+void drawGEffects(const Player &player) {
+  static Texture2D vignette{};
+  if (vignette.id == 0) {
+    Image image = GenImageGradientRadial(512, 512, 0.25f, Color{0, 0, 0, 0}, Color{0, 0, 0, 255});
+    vignette = LoadTextureFromImage(image);
+    UnloadImage(image);
+  }
+  const GLoad &g = player.load;
+  const float w = kScreenWidth, h = kScreenHeight;
+  if (g.greyout > 0.0f) {
+    // Colour drains first: a flat grey wash, slightly dark.
+    DrawRectangle(0, 0, kScreenWidth, kScreenHeight, Color{70, 72, 74, static_cast<unsigned char>(150 * g.greyout)});
+  }
+  auto tunnel = [&](float closing, Color tint) {
+    // The vignette starts well outside the screen and closes in.
+    const float size = std::hypot(w, h) * (2.4f - 1.9f * closing);
+    const Rectangle dest{(w - size) * 0.5f, (h - size) * 0.5f, size, size};
+    DrawTexturePro(vignette, {0, 0, 512, 512}, dest, {0, 0}, 0.0f, tint);
+    if (dest.x > 0.0f) { // fill outside the texture
+      DrawRectangle(0, 0, static_cast<int>(dest.x) + 1, kScreenHeight, tint);
+      DrawRectangle(static_cast<int>(dest.x + size) - 1, 0, static_cast<int>(dest.x) + 2, kScreenHeight, tint);
+    }
+    if (dest.y > 0.0f) {
+      DrawRectangle(0, 0, kScreenWidth, static_cast<int>(dest.y) + 1, tint);
+      DrawRectangle(0, static_cast<int>(dest.y + size) - 1, kScreenWidth, static_cast<int>(dest.y) + 2, tint);
+    }
+  };
+  const float closing = std::max(0.35f * g.greyout, g.blackout);
+  if (closing > 0.0f) tunnel(closing, Color{0, 0, 0, 255});
+  if (g.blackout > 0.75f) {
+    DrawRectangle(0, 0, kScreenWidth, kScreenHeight,
+                  Color{0, 0, 0, static_cast<unsigned char>(255 * smoothstep(0.75f, 1.0f, g.blackout))});
+  }
+  if (g.redout > 0.0f) {
+    DrawRectangle(0, 0, kScreenWidth, kScreenHeight, Color{150, 0, 0, static_cast<unsigned char>(130 * g.redout)});
+    tunnel(0.6f * g.redout, Color{90, 0, 0, 255});
+  }
 }
 
 void drawCrash(const Player &player) {
@@ -404,29 +438,38 @@ void drawHud(const Player &player, const Camera3D &camera) {
 
   drawHorizon(att, camera.fovy);
   drawFlightPathMarker(player, camera);
-  if (player.flight > 0.05f) drawAimCircle(player, camera); // hovering, the view looks along it
   drawCompass(att);
   drawSpeedPanel(player);
   drawAltitudePanel(player);
   drawStatus(player, time);
   drawEngineGauge(player, time);
   drawShipDiagram(player, time);
+  drawGMeter(player);
   drawCrash(player);
 
-  constexpr const char *kHints[][2] = {
-      {"MOUSE", "aim: go where you look"},
-      {"W / S", "faster / slower, or reverse"},
-      {"", "let go: hold speed (stop if slow)"},
-      {"A / D", "strafe, or roll when fast"},
-      {"SPACE / SHIFT", "climb / descend when slow"},
+  constexpr const char *kHoverHints[][2] = {
+      {"MOUSE", "look"},
+      {"W A S D", "move (let go: stop)"},
+      {"SPACE / SHIFT", "climb / descend"},
+      {"F", "arm conversion to jet"},
+      {"", ""},
   };
+  constexpr const char *kJetHints[][2] = {
+      {"MOUSE", "stick: X turns, Y pitches"},
+      {"", "springs back: keep moving to keep turning"},
+      {"W / S", "throttle (S at idle: airbrake)"},
+      {"A / D", "roll"},
+      {"F", "arm conversion to hover"},
+  };
+  const auto &hints = isJetMode(player.mode) ? kJetHints : kHoverHints;
   for (int pass = 0; pass < 2; ++pass) {
     const float o = pass == 0 ? 1.0f : 0.0f;
     const Color c = pass == 0 ? Color{0, 10, 16, 200} : alpha(kWhite, 0.75f);
     for (int i = 0; i < 5; ++i) {
-      text(kHints[i][0], 36 + o, 20 + 15 * i + o, 12, c, 1.0f);
-      text(kHints[i][1], 150 + o, 20 + 15 * i + o, 12, c, 1.0f);
+      text(hints[i][0], 36 + o, 20 + 15 * i + o, 12, c, 1.0f);
+      text(hints[i][1], 150 + o, 20 + 15 * i + o, 12, c, 1.0f);
     }
   }
   text(TextFormat("%d FPS", GetFPS()), kScreenWidth - 90, 20, 12, kCyanDim, 1.0f);
+  drawGEffects(player);
 }

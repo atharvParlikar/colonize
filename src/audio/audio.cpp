@@ -19,6 +19,8 @@ std::atomic<float> gRpm{0.0f};      // engine speed, 0..12000
 std::atomic<float> gTurbo{1.0f};    // forward-jet thrust multiplier, 1..3
 std::atomic<float> gHover{0.0f};    // ground speed / top speed while hovering, -1 when airborne
 std::atomic<float> gMuffle{0.0f};   // 1 when on the ground (wind is quieter)
+std::atomic<float> gDim{0.0f};      // 0..1 greyout / blackout / redout: the world goes muffled and quiet
+std::atomic<float> gHeart{0.0f};    // 0..1 heartbeat loudness and pace, from the g dose
 
 AudioStream gStream{};
 bool gReady = false;
@@ -40,6 +42,7 @@ struct Voice {
   float pssh = 0.0f, surge = 0.0f;   // blow-off hiss on engage, compressor surge on cut-out
   float phaseSiren = 0, phaseSaw2 = 0, phaseSurge = 0, phaseKick = 0, kick = 0;
   float lpPssh = 0, lpAirT1 = 0, lpAirT2 = 0, lpSurge = 0;
+  float dim = 0.0f, heart = 0.0f, lpMaster1 = 0, lpMaster2 = 0, phaseBeat = 0, phaseHeart = 0;
 } v;
 
 float noise(uint32_t &s) {
@@ -70,6 +73,8 @@ void synth(void *buffer, unsigned frames) {
   if (turboCommand < 1.9f && v.lastTurbo >= 1.9f) v.surge = 1.0f;
   v.lastTurbo = turboCommand;
 
+  const float dimCommand = gDim.load(std::memory_order_relaxed);
+  const float heartCommand = gHeart.load(std::memory_order_relaxed);
   const float windTarget = std::min(airspeed / 60.0f, 1.6f);
   const float dt = 1.0f / kSampleRate;
 
@@ -182,7 +187,30 @@ void synth(void *buffer, unsigned frames) {
     v.lpWind2 += onePole(windCut) * (v.lpWind1 - v.lpWind2);
     const float windGain = v.wind * v.wind * (1.0f - 0.6f * muffle) * 1.8f;
 
-    out[i] = std::tanh(0.4f * jet + v.lpWind2 * windGain) * 0.6f;
+    float mix = std::tanh(0.4f * jet + v.lpWind2 * windGain) * 0.6f;
+
+    // Under load the world goes muffled and quiet (a two-pole low-pass that
+    // closes from ~12 kHz to ~300 Hz, and a duck), and a heartbeat comes up
+    // under it, faster as the dose builds.
+    v.dim += (dimCommand - v.dim) * (1.0f / (0.1f * kSampleRate));
+    v.heart += (heartCommand - v.heart) * (1.0f / (0.3f * kSampleRate));
+    const float cut = 12000.0f * std::pow(300.0f / 12000.0f, v.dim);
+    v.lpMaster1 += onePole(cut) * (mix - v.lpMaster1);
+    v.lpMaster2 += onePole(cut) * (v.lpMaster1 - v.lpMaster2);
+    mix = v.lpMaster2 * (1.0f - 0.65f * v.dim);
+    if (v.heart > 0.002f) {
+      v.phaseBeat += (1.1f + 1.2f * v.heart) * dt; // beats per second
+      if (v.phaseBeat >= 1.0f) v.phaseBeat -= 1.0f;
+      // Lub at 0, dub at 0.28 of the beat: short decaying low thumps.
+      auto thumpAt = [&](float at, float gain) {
+        const float since = v.phaseBeat - at;
+        return since >= 0.0f && since < 0.25f ? gain * std::exp(-since * 28.0f) : 0.0f;
+      };
+      const float env = thumpAt(0.0f, 1.0f) + thumpAt(0.28f, 0.7f);
+      v.phaseHeart = wrap(v.phaseHeart + 52.0f * dt);
+      mix += v.heart * 0.5f * env * std::sin(kTwoPi * v.phaseHeart);
+    }
+    out[i] = mix;
   }
 }
 
@@ -200,11 +228,15 @@ void initAudio() {
 
 void updateAudio(const Player &player) {
   if (!gReady) return;
+  const GLoad &load = player.load;
+  gDim.store(std::max({0.5f * load.greyout, load.blackout, load.redout}), std::memory_order_relaxed);
+  gHeart.store(std::clamp(std::max(load.dose / tuning.tunnelDose, load.negDose / tuning.redoutDose), 0.0f, 1.0f),
+               std::memory_order_relaxed);
   gThrottle.store(player.engineRpm > 1.0f ? 1.0f : 0.0f, std::memory_order_relaxed);
   gRpm.store(player.engineRpm, std::memory_order_relaxed);
   gTurbo.store(1.0f, std::memory_order_relaxed);
   gWind.store(Vector3Length(player.velocity), std::memory_order_relaxed);
-  gHover.store(player.engineRpm > 1.0f ? 0.7f : 0.0f, std::memory_order_relaxed);
+  gHover.store(player.engineRpm > 1.0f ? 0.7f * (1.0f - player.convert) : 0.0f, std::memory_order_relaxed);
   gMuffle.store(0.0f, std::memory_order_relaxed);
 }
 
