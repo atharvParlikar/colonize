@@ -1,8 +1,8 @@
 #pragma once
 
+#include "core/tuning.hpp" // live flight tuning: hover, conversion, jet and g numbers
 #include "raylib.h"
 #include "raymath.h"
-#include "core/tuning.hpp" // live flight tuning: hover, conversion, jet and g numbers
 
 // Units: 1 world unit = 1 metre, SI everywhere (kg, N, m/s).
 constexpr int kScreenWidth = 1280;
@@ -16,15 +16,18 @@ constexpr float kPhysicsDt = 1.0f / 120.0f;
 constexpr float kPlayerRadius = 0.35f;
 constexpr float kPlayerHeight = 1.8f;
 constexpr float kEyeHeight = 1.65f;
-constexpr float kPlayerMass = 80.0f; // pilot only; the craft's mass is kAirframeMass
+constexpr float kPlayerMass =
+    80.0f; // pilot only; the craft's mass is kAirframeMass
 constexpr float kGravity = 9.81f;
 constexpr float kPlayerWeight = kPlayerMass * kGravity;
 
 // Ground contact
-constexpr float kLandingEps = 0.01f; // collision resolution leaves us exactly on the surface
+constexpr float kLandingEps =
+    0.01f; // collision resolution leaves us exactly on the surface
 constexpr float kGroundSnap = 0.35f;
 constexpr float kStoneFriction = 0.8f;
-constexpr float kSkidFriction = 0.6f;  // skids on the ground, times g, as far as the engine is not carrying the weight
+constexpr float kSkidFriction = 0.6f; // skids on the ground, times g, as far as
+                                      // the engine is not carrying the weight
 
 // ---- Hover: a game, not a helicopter ----------------------------------------
 // Kinematic: WASD asks for a velocity relative to where you look, Space / Shift
@@ -42,27 +45,28 @@ constexpr float kSkidFriction = 0.6f;  // skids on the ground, times g, as far a
 // holding the nose up.
 constexpr float kJetMinSpeed = 5.0f;
 
-// ---- g -----------------------------------------------------------------------
+// ---- g
+// -----------------------------------------------------------------------
 
 // Engine sound / gauge: rpm follows the spooled thrust; it idles on the
 // ground and shuts off after kIdleTimeout at rest.
 constexpr float kIdleRpm = 2500.0f;
-constexpr float kTurboStartRpm = 6000.0f;     // gauge's hot zone
+constexpr float kTurboStartRpm = 6000.0f; // gauge's hot zone
 constexpr float kRedlineRpm = 12000.0f;
-constexpr float kIdleTimeout = 6.0f;          // s
+constexpr float kIdleTimeout = 6.0f; // s
 
 // ---- Combat ----------------------------------------------------------------
 // A nose cannon and a field of target drones around spawn (combat/combat.cpp).
-constexpr float kCannonRate = 12.0f;          // rounds per second
-constexpr float kMuzzleSpeed = 700.0f;        // m/s, on top of the craft's velocity
-constexpr float kRoundLifetime = 2.5f;        // s
-constexpr float kGunConvergence = 400.0f;     // m: rounds cross the aim line here
-constexpr float kDroneRadius = 1.6f;          // m
+constexpr float kCannonRate = 12.0f;      // rounds per second
+constexpr float kMuzzleSpeed = 700.0f;    // m/s, on top of the craft's velocity
+constexpr float kRoundLifetime = 2.5f;    // s
+constexpr float kGunConvergence = 400.0f; // m: rounds cross the aim line here
+constexpr float kDroneRadius = 1.6f;      // m
 constexpr int kDroneCount = 24;
-constexpr int kDroneHealth = 3;               // rounds to break one
-constexpr float kDroneRespawnTime = 8.0f;     // s
-constexpr float kSparkLifetime = 1.2f;        // s
+constexpr int kDroneHealth = 3;           // rounds to break one
+constexpr float kDroneRespawnTime = 8.0f; // s
+constexpr float kSparkLifetime = 1.2f;    // s
 
 // Landing
-constexpr float kCrashSpeed = 10.0f;          // m/s of velocity lost to impact
+constexpr float kCrashSpeed = 10.0f; // m/s of velocity lost to impact
 constexpr float kCrashMessageTime = 3.0f;
